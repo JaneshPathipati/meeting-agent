@@ -306,8 +306,11 @@ function isAppUsingCamera(appProcesses) {
 }
 
 // Get window titles from Teams desktop processes (for meeting keyword matching)
-// Teams title patterns: "Meeting with ...", "Call with ...", etc.
-const TEAMS_MEETING_TITLE_KEYWORDS = ['meeting', 'call with', 'meet app'];
+// Teams title patterns: "Meeting with ...", "Call with ...", "In a call", etc.
+const TEAMS_MEETING_TITLE_KEYWORDS = [
+  'meeting', 'call with', 'meet app',
+  'in a call', 'on a call', 'meeting in progress', 'is sharing', 'screen sharing',
+];
 
 function getTeamsDesktopWindowTitles() {
   try {
@@ -329,6 +332,31 @@ function teamsDesktopTitleHasMeetingKeywords() {
     const lower = title.toLowerCase();
     return TEAMS_MEETING_TITLE_KEYWORDS.some(kw => lower.includes(kw));
   });
+}
+
+// Check if a Teams call is active by counting high UDP ephemeral endpoints.
+// Active Teams media sessions use many UDP ports > 49152 for SRTP/ICE.
+// >20 such endpoints reliably indicates an active call (idle systems have <5).
+// Cached for 10s to avoid running a heavyweight PowerShell every tick.
+let _lastUdpCheck = { time: 0, active: false };
+const UDP_CHECK_CACHE_MS = 10000;
+
+function isTeamsCallActive() {
+  const now = Date.now();
+  if (now - _lastUdpCheck.time < UDP_CHECK_CACHE_MS) return _lastUdpCheck.active;
+  try {
+    const result = execSync(
+      'powershell -NoProfile -NonInteractive -Command "Get-NetUDPEndpoint | Where-Object {$_.LocalPort -gt 49152} | Measure-Object | Select-Object -ExpandProperty Count"',
+      { timeout: 3000, encoding: 'utf8', windowsHide: true }
+    ).trim();
+    const udpCount = parseInt(result, 10);
+    const active = !isNaN(udpCount) && udpCount > 20;
+    _lastUdpCheck = { time: now, active };
+    return active;
+  } catch (err) {
+    log.debug('[Detector] UDP endpoint check failed', { error: err.message });
+    return false;
+  }
 }
 
 // When a listen-only meeting is detected via the PRIMARY presence block (Teams desktop
@@ -524,6 +552,26 @@ async function detectMeetingSignals(processes, fgTitle, fgProcessName) {
           windowTitle: fgTitle,
           detectedWithoutMic: true,
           listenOnlyPriority: 3
+        };
+      }
+
+      // Priority 3.5: InAMeeting + high UDP endpoint count (>20 = active media session)
+      // Catches minimized/multi-monitor Teams calls where title check can't confirm.
+      // Single-tick signal — no sustained requirement needed (UDP count is hard evidence).
+      if (isTeamsCallActive()) {
+        const resolved = resolveListenOnlyApp(teamsApp, processes);
+        log.info('[Detector] Listen-only Teams meeting detected via InAMeeting + UDP endpoints', {
+          activity: presence.activity, attributedTo: resolved.appName
+        });
+        _presenceNoMicCount = 0;
+        return {
+          detected: true,
+          appName: resolved.appName,
+          appConfig: resolved.appConfig,
+          isTeams: true,
+          windowTitle: fgTitle,
+          detectedWithoutMic: true,
+          listenOnlyPriority: 3,
         };
       }
 

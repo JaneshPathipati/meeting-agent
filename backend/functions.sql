@@ -62,6 +62,12 @@ BEGIN
     )::text
   )::extensions.http_request);
 
+  -- Guard: http extension may return NULL record if the request could not be made
+  IF v_response IS NULL THEN
+    RAISE WARNING 'call_openai_sync: http extension returned NULL response (network or extension error)';
+    RETURN NULL;
+  END IF;
+
   IF v_response.status != 200 THEN
     RAISE WARNING 'OpenAI HTTP %: %', v_response.status, left(v_response.content, 200);
     RETURN NULL;

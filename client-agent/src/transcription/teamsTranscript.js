@@ -618,13 +618,28 @@ async function fetchTranscriptByJoinUrl(graphClient, joinUrl, meetingStart, meet
       endDateTime: officialEndTime
     };
   } catch (err) {
-    log.warn('[TeamsTranscript] fetchByJoinUrl failed', {
-      error: err.message,
-      statusCode: err.statusCode || err.code || 'unknown',
-      joinUrl: joinUrl ? joinUrl.substring(0, 100) : 'n/a',
-      meetingStart: meetingStart?.toISOString(),
-      meetingEnd: meetingEnd?.toISOString()
-    });
+    const status = err.statusCode || err.status || err.code;
+
+    // 429 = Graph API rate limit — respect Retry-After header before returning
+    if (status === 429) {
+      const retryAfterSec = parseInt(
+        (err.headers && (err.headers['retry-after'] || err.headers['Retry-After'])) || '60',
+        10
+      );
+      log.warn('[TeamsTranscript] fetchByJoinUrl: Graph API rate limited (429)', {
+        retryAfterSec,
+        joinUrl: joinUrl ? joinUrl.substring(0, 80) : 'n/a',
+      });
+      await new Promise(r => setTimeout(r, retryAfterSec * 1000));
+    } else {
+      log.warn('[TeamsTranscript] fetchByJoinUrl failed', {
+        error: err.message,
+        statusCode: status || 'unknown',
+        joinUrl: joinUrl ? joinUrl.substring(0, 100) : 'n/a',
+        meetingStart: meetingStart?.toISOString(),
+        meetingEnd: meetingEnd?.toISOString(),
+      });
+    }
     return null;
   }
 }
@@ -633,11 +648,14 @@ async function fetchTranscriptByJoinUrl(graphClient, joinUrl, meetingStart, meet
 // This function polls until re-processing completes, then sends the deferred email.
 // Runs async (fire-and-forget) so it doesn't block the caller.
 function scheduleEmailAfterReprocessing(supabase, meetingId) {
-  const MAX_POLLS = 20;       // 20 × 15s = 5 min max wait
-  const POLL_INTERVAL = 15000; // 15 seconds
+  const MAX_POLLS = 20; // 20 × 15s = 5 min max wait
   let polls = 0;
 
-  const timer = setInterval(async () => {
+  async function poll() {
+    if (polls >= MAX_POLLS) {
+      log.warn('[TeamsTranscript] Email poll: max polls reached, giving up', { meetingId });
+      return;
+    }
     polls++;
     try {
       const { data: meeting } = await supabase
@@ -648,7 +666,6 @@ function scheduleEmailAfterReprocessing(supabase, meetingId) {
 
       if (!meeting) {
         log.warn('[TeamsTranscript] Email poll: meeting not found', { meetingId });
-        clearInterval(timer);
         return;
       }
 
@@ -657,7 +674,6 @@ function scheduleEmailAfterReprocessing(supabase, meetingId) {
       });
 
       if (meeting.status === 'processed') {
-        clearInterval(timer);
         log.info('[TeamsTranscript] Re-processing complete, sending email', { meetingId });
 
         const { data: emailResult, error: rpcErr } = await supabase.rpc('send_deferred_email', {
@@ -669,17 +685,25 @@ function scheduleEmailAfterReprocessing(supabase, meetingId) {
         } else {
           log.info('[TeamsTranscript] Post-override email sent', { meetingId, result: emailResult });
         }
-      } else if (meeting.status === 'failed' || polls >= MAX_POLLS) {
-        clearInterval(timer);
+        return; // done
+      } else if (meeting.status === 'failed') {
         log.warn('[TeamsTranscript] Email poll: gave up waiting', {
           meetingId, status: meeting.status, polls
         });
+        return; // done
       }
     } catch (err) {
       log.warn('[TeamsTranscript] Email poll error', { meetingId, error: err.message });
-      if (polls >= MAX_POLLS) clearInterval(timer);
+      if (polls >= MAX_POLLS) {
+        log.warn('[TeamsTranscript] Email poll: max polls reached in catch, giving up', { meetingId });
+        return;
+      }
     }
-  }, POLL_INTERVAL);
+    // Schedule next poll only after this one finishes (avoids overlapping calls)
+    setTimeout(poll, 15000);
+  }
+
+  setTimeout(poll, 15000);
 }
 
 // Called when all Teams transcript checks have been exhausted.

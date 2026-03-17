@@ -93,6 +93,10 @@ export function useTranscriptSearch(orgId, query) {
         setResults(data || []);
       }
       setLoading(false);
+    }).catch(err => {
+      if (cancelled) return;
+      setError(err.message || 'Search failed');
+      setLoading(false);
     });
 
     return () => { cancelled = true; };
@@ -121,6 +125,10 @@ export function useMeetingDetail(meetingId) {
       ]);
 
       if (meetingRes.error) throw meetingRes.error;
+      // Transcript/summary errors that are not "row not found" (PGRST116) should surface
+      if (transcriptRes.error && transcriptRes.error.code !== 'PGRST116') throw transcriptRes.error;
+      if (summaryRes.error && summaryRes.error.code !== 'PGRST116') throw summaryRes.error;
+      if (alertsRes.error) throw alertsRes.error;
 
       setMeeting(meetingRes.data);
       setTranscript(transcriptRes.data);
@@ -136,6 +144,45 @@ export function useMeetingDetail(meetingId) {
   useEffect(() => {
     fetchDetail();
   }, [fetchDetail]);
+
+  // Realtime: keep meeting detail live without polling
+  useEffect(() => {
+    if (!meetingId) return;
+
+    const channel = supabase
+      .channel(`meeting-detail-${meetingId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'meetings',
+        filter: `id=eq.${meetingId}`,
+      }, (payload) => {
+        setMeeting(prev => prev ? { ...payload.new, profiles: prev.profiles } : null);
+      })
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'transcripts',
+        filter: `meeting_id=eq.${meetingId}`,
+      }, (payload) => {
+        setTranscript(payload.new);
+      })
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'summaries',
+        filter: `meeting_id=eq.${meetingId}`,
+      }, (payload) => {
+        if (payload.new.is_default) setSummary(payload.new);
+      })
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'tone_alerts',
+        filter: `meeting_id=eq.${meetingId}`,
+      }, (payload) => {
+        setAlerts(prev => {
+          if (prev.some(a => a.id === payload.new.id)) return prev;
+          return [...prev, payload.new].sort((a, b) =>
+            (a.start_time || '').localeCompare(b.start_time || ''));
+        });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [meetingId]);
 
   return { meeting, transcript, summary, alerts, loading, error, refetch: fetchDetail };
 }

@@ -55,28 +55,42 @@ function mixAudio(micPath, systemPath, outputPath) {
     let args;
 
     if (!micValid || !sysValid) {
-      // Single source — convert to 16kHz mono. No loudnorm (amplifies silence → hallucinations).
+      // Single source — convert to 16kHz mono.
       // Mic audio is already filtered at recording time (highpass + volume in micRecorder.js).
+      // For system audio, apply EQ + volume boost (WASAPI loopback can be quiet).
       const inputPath = micValid ? micPath : systemPath;
       log.info('[Mixer] Only one audio source, converting', { inputPath, sizeMB: inputSizeMB.toFixed(1) });
 
-      args = [
-        '-y', '-i', inputPath,
-        '-ar', '16000', '-ac', '1',
-        outputPath
-      ];
+      if (sysValid && !micValid) {
+        // System-only: apply full EQ + volume boost for quiet loopback recordings
+        args = [
+          '-y', '-i', inputPath,
+          '-af', 'highpass=f=80,lowpass=f=8000,volume=2.0',
+          '-ar', '16000', '-ac', '1',
+          outputPath,
+        ];
+      } else {
+        // Mic-only: apply freq filtering only (mic already amplified in micRecorder.js)
+        args = [
+          '-y', '-i', inputPath,
+          '-af', 'highpass=f=80,lowpass=f=8000',
+          '-ar', '16000', '-ac', '1',
+          outputPath,
+        ];
+      }
     } else {
-      // Both sources available — mix mic (louder) and system audio
+      // Both sources available — mix mic (louder) and system audio,
+      // then apply frequency EQ. Skip volume boost on the mix to avoid clipping.
       log.info('[Mixer] Mixing mic + system audio', { micPath, systemPath, outputPath, sizeMB: inputSizeMB.toFixed(1) });
 
       args = [
         '-y',
         '-i', micPath,
         '-i', systemPath,
-        '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=longest:weights=1.2 0.8',
+        '-filter_complex', '[0:a][1:a]amix=inputs=2:duration=longest:weights=1.2 0.8,highpass=f=80,lowpass=f=8000',
         '-ar', '16000',
         '-ac', '1',
-        outputPath
+        outputPath,
       ];
     }
 

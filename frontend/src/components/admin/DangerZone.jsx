@@ -225,9 +225,9 @@ function DangerZone() {
     setInviteCopied(false);
   }
 
-  const SUPER_ADMIN_EMAIL = import.meta.env.VITE_SUPER_ADMIN_EMAIL || '';
+  const SUPER_ADMIN_EMAIL = (import.meta.env.VITE_SUPER_ADMIN_EMAIL || '').trim().toLowerCase();
   const isSelf = (adminId) => adminId === profile.id;
-  const isSuperAdmin = (email) => email?.toLowerCase() === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = (email) => SUPER_ADMIN_EMAIL.length > 0 && email?.toLowerCase() === SUPER_ADMIN_EMAIL;
   const isCurrentUserSuperAdmin = isSuperAdmin(user?.email);
 
   return (

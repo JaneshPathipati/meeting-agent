@@ -70,6 +70,7 @@ function Settings() {
   }, []);
 
   async function fetchOrg() {
+    if (!profile?.org_id) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('organizations')

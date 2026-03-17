@@ -102,6 +102,9 @@ CREATE TABLE summaries (
 
 CREATE INDEX idx_summaries_meeting_id ON summaries(meeting_id);
 
+-- Required for ON CONFLICT (meeting_id) WHERE is_default = true in cron-jobs.sql
+CREATE UNIQUE INDEX uq_summaries_default_per_meeting ON summaries(meeting_id) WHERE is_default = true;
+
 -- Tone Alerts
 CREATE TABLE tone_alerts (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -138,6 +141,9 @@ CREATE TABLE processing_jobs (
 CREATE INDEX idx_processing_jobs_status ON processing_jobs(status);
 CREATE INDEX idx_processing_jobs_request_id ON processing_jobs(pg_net_request_id);
 CREATE INDEX idx_processing_jobs_meeting_id ON processing_jobs(meeting_id);
+
+-- Required for ON CONFLICT (meeting_id, job_type) in cron-jobs.sql and functions.sql
+ALTER TABLE processing_jobs ADD CONSTRAINT uq_processing_jobs_meeting_type UNIQUE (meeting_id, job_type);
 
 -- Updated_at trigger (reusable)
 CREATE OR REPLACE FUNCTION update_updated_at_column()

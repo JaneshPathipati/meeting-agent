@@ -75,7 +75,11 @@ function callOpenAISummary(transcript, userName) {
           }
           const content = parsed.choices?.[0]?.message?.content;
           if (!content) return reject(new Error('Empty OpenAI response'));
-          resolve(JSON.parse(content));
+          try {
+            resolve(JSON.parse(content));
+          } catch (parseErr) {
+            reject(new Error(`OpenAI returned non-JSON content: ${content.slice(0, 200)}`));
+          }
         } catch (e) {
           reject(new Error(`OpenAI parse failed: ${raw.slice(0, 200)}`));
         }

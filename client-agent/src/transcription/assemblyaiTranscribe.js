@@ -113,6 +113,10 @@ async function requestTranscription(uploadUrl, apiKey, hasBothStreams) {
     // universal-3-pro: best accuracy (5.9% WER), better diarization, crosstalk detection.
     // universal-2 as fallback: supports 99 languages, slightly lower accuracy.
     speech_models: ['universal-3-pro', 'universal-2'],
+    // format_text + punctuate: add capitalization, punctuation, and sentence formatting
+    // to the transcript — improves readability and excerpt display in the admin dashboard.
+    format_text: true,
+    punctuate: true,
   };
 
   // Speaker range hints — use min/max instead of exact count.
@@ -237,6 +241,13 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName) {
     // Step 1: Prepare audio (mix or convert to single file)
     mixAudioForUpload(micPath, sysPath, mixedPath);
 
+    // Step 1b: Guard against oversized files (AssemblyAI limit: 2 GB)
+    const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
+    const mixedSize = fs.statSync(mixedPath).size;
+    if (mixedSize > MAX_UPLOAD_BYTES) {
+      throw new Error(`Audio file exceeds 2 GB AssemblyAI limit (${Math.round(mixedSize / 1024 / 1024)} MB)`);
+    }
+
     // Step 2: Upload to AssemblyAI
     const uploadUrl = await uploadAudio(mixedPath, apiKey);
 
@@ -278,9 +289,11 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName) {
 
     // Build complete speaker map upfront (no mutation during segment building)
     const speakerMap = {};
-    speakerMap[sortedSpeakers[0]] = speakerName;
-    for (let i = 1; i < sortedSpeakers.length; i++) {
-      speakerMap[sortedSpeakers[i]] = `Remote Participant ${i}`;
+    if (sortedSpeakers.length > 0) {
+      speakerMap[sortedSpeakers[0]] = speakerName;
+      for (let i = 1; i < sortedSpeakers.length; i++) {
+        speakerMap[sortedSpeakers[i]] = `Remote Participant ${i}`;
+      }
     }
 
     // Step 7: Build segments with low-confidence word flagging

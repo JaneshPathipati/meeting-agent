@@ -31,11 +31,18 @@ const PRESENCE_AMBIGUOUS_ACTIVITIES = new Set([
 let _lastPresence = { time: 0, result: null };
 const PRESENCE_CACHE_MS = 4000; // Cache for 4s (poll interval is 5s)
 
+// Set to true when Graph API returns 404 for /me/presence — means no Teams license.
+// Skip presence checks for the rest of this session to avoid log spam.
+let _teamsLicenseAbsent = false;
+
 /**
  * Check if the user is currently in a Teams meeting via Graph Presence API.
  * Returns { inMeeting: boolean, activity: string, availability: string } or null on error.
  */
 async function checkTeamsPresence() {
+  // Skip if we've already confirmed this user has no Teams license
+  if (_teamsLicenseAbsent) return null;
+
   const now = Date.now();
   if (now - _lastPresence.time < PRESENCE_CACHE_MS && _lastPresence.result !== null) {
     return _lastPresence.result;
@@ -62,8 +69,24 @@ async function checkTeamsPresence() {
     log.debug('[Presence] Status', { activity: result.activity, availability: result.availability, inMeeting: result.inMeeting, isActiveCall: result.isActiveCall });
     return result;
   } catch (err) {
-    // On error (network, token expired, etc.), return null — caller should fall back
-    log.debug('[Presence] API call failed', { error: err.message });
+    const status = err.statusCode || err.status || err.code;
+
+    if (status === 401 || status === 403) {
+      // Token expired — attempt silent refresh so next tick works
+      log.warn('[Presence] Token expired (401/403), attempting silent refresh');
+      try {
+        const { validateTokenOrReauth } = require('../auth/msalAuth');
+        await validateTokenOrReauth();
+      } catch (refreshErr) {
+        log.debug('[Presence] Silent token refresh failed', { error: refreshErr.message });
+      }
+    } else if (status === 404) {
+      // User has no Teams license — presence API unavailable for this account
+      log.info('[Presence] User has no Teams license (404) — disabling presence checks');
+      _teamsLicenseAbsent = true;
+    }
+
+    log.debug('[Presence] API call failed', { error: err.message, status });
     _lastPresence = { time: now, result: null };
     return null;
   }
@@ -74,6 +97,7 @@ async function checkTeamsPresence() {
  */
 function resetPresenceCache() {
   _lastPresence = { time: 0, result: null };
+  // Don't reset _teamsLicenseAbsent — if the user has no license it won't change this session
 }
 
 module.exports = { checkTeamsPresence, resetPresenceCache, MEETING_ACTIVITIES, ACTIVE_CALL_ACTIVITIES, PRESENCE_AMBIGUOUS_ACTIVITIES };

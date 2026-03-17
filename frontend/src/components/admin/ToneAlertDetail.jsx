@@ -1,7 +1,8 @@
 // file: frontend/src/components/admin/ToneAlertDetail.jsx
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGroupedAlerts, useMeetingsLog } from '../../hooks/useAlerts';
+import { useRealtime } from '../../hooks/useRealtime';
 import { formatDateShort } from '../../utils/formatDate';
 import { formatDuration } from '../../utils/formatDuration';
 import {
@@ -45,8 +46,17 @@ function ToneAlertDetail() {
   const [filters, setFilters] = useState({});
   const [expandedMeetings, setExpandedMeetings] = useState(new Set());
   const [reviewError, setReviewError] = useState('');
-  const { groups, loading: groupsLoading, markReviewed, markUnreviewed } = useGroupedAlerts(filters);
+  const { groups, loading: groupsLoading, refetch: refetchAlerts, markReviewed, markUnreviewed } = useGroupedAlerts(filters);
   const { meetings: meetingsLog, loading: logLoading } = useMeetingsLog();
+
+  useRealtime(
+    'tone_alerts',
+    useCallback((payload) => {
+      if (payload.eventType === 'INSERT') {
+        refetchAlerts();
+      }
+    }, [refetchAlerts])
+  );
 
   function toggleMeeting(meetingId) {
     setExpandedMeetings(prev => {

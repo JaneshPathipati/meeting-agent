@@ -1,6 +1,6 @@
 // file: frontend/src/components/admin/TranscriptViewer.jsx
-import React, { useMemo, useEffect } from 'react';
-import { FileText, Cpu, Cloud } from 'lucide-react';
+import React, { useMemo, useEffect, useState } from 'react';
+import { FileText, Cpu, Cloud, ChevronDown, ChevronUp } from 'lucide-react';
 import EmptyState from '../shared/EmptyState';
 
 const highlightStyles = {
@@ -64,6 +64,72 @@ function renderHighlightedText(text, segmentAlerts) {
     parts.push(<span key="tail">{text.slice(lastIdx)}</span>);
   }
   return parts;
+}
+
+/* ── Speaker Talk-Time Breakdown ─────────────────────────────────── */
+const SPEAKER_COLORS = ['#F97316', '#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EC4899', '#14B8A6'];
+
+function SpeakerBreakdown({ segments }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const stats = useMemo(() => {
+    const map = {};
+    segments.forEach(seg => {
+      const speaker = seg.speaker || 'Unknown';
+      if (!map[speaker]) map[speaker] = { words: 0, segments: 0 };
+      map[speaker].words += (seg.text || '').split(/\s+/).filter(Boolean).length;
+      map[speaker].segments += 1;
+    });
+    const entries = Object.entries(map).sort((a, b) => b[1].words - a[1].words);
+    const totalWords = entries.reduce((s, [, v]) => s + v.words, 0);
+    return entries.map(([name, v]) => ({
+      name,
+      words: v.words,
+      segments: v.segments,
+      pct: totalWords > 0 ? Math.round((v.words / totalWords) * 100) : 0,
+    }));
+  }, [segments]);
+
+  if (stats.length < 2) return null;
+
+  const topTwo = stats.slice(0, 2);
+  const rest = stats.slice(2);
+
+  return (
+    <div className="px-4 py-3 border-b dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/20">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Speaker Breakdown</p>
+        {rest.length > 0 && (
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            {expanded ? 'Less' : `+${rest.length} more`}
+            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {(expanded ? stats : topTwo).map((s, i) => (
+          <div key={s.name} className="flex items-center gap-2">
+            <span
+              className="flex-shrink-0 h-2 w-2 rounded-full"
+              style={{ background: SPEAKER_COLORS[i % SPEAKER_COLORS.length] }}
+            />
+            <span className="text-xs text-gray-700 dark:text-gray-300 w-28 truncate font-medium">{s.name}</span>
+            <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${s.pct}%`, background: SPEAKER_COLORS[i % SPEAKER_COLORS.length], transition: 'width 0.6s cubic-bezier(0.22,1,0.36,1)' }}
+              />
+            </div>
+            <span className="text-[11px] font-semibold w-8 text-right" style={{ color: SPEAKER_COLORS[i % SPEAKER_COLORS.length] }}>{s.pct}%</span>
+            <span className="text-[10px] text-gray-400 w-16 text-right hidden sm:block">{s.words.toLocaleString()} words</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // Parse HH:MM:SS or MM:SS timestamp string to total seconds
@@ -188,6 +254,8 @@ function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRe
           )}
         </div>
       </div>
+
+      <SpeakerBreakdown segments={segments} />
 
       <div ref={transcriptRef} className="p-4 max-h-[600px] overflow-y-auto space-y-3">
         {hasMalformedData && (

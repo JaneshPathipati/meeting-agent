@@ -10,7 +10,7 @@ async function main() {
     process.exit(1);
   }
 
-  const c = new Client({ connectionString: CONN, ssl: { rejectUnauthorized: false } });
+  const c = new Client({ connectionString: CONN, ssl: process.env.NODE_ENV === 'production' ? true : { rejectUnauthorized: false } });
   await c.connect();
 
   console.log('\n=== PROCESSING JOBS (latest 15) ===');

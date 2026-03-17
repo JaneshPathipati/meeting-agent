@@ -306,6 +306,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Unschedule first so re-running this file does not error with duplicate key
+SELECT cron.unschedule('process-pending-jobs');
 SELECT cron.schedule('process-pending-jobs', '* * * * *', 'SELECT process_pending_jobs();');
 
 -- Data retention cleanup (daily at 3 AM UTC)
@@ -315,10 +317,12 @@ BEGIN
   DELETE FROM meetings m
   USING organizations o
   WHERE m.org_id = o.id
-    AND m.created_at < NOW() - (o.data_retention_days || ' days')::INTERVAL;
+    AND m.created_at < NOW() - (INTERVAL '1 day' * o.data_retention_days);
 END;
 $$ LANGUAGE plpgsql;
 
+-- Unschedule first so re-running this file does not error with duplicate key
+SELECT cron.unschedule('cleanup-old-data');
 SELECT cron.schedule('cleanup-old-data', '0 3 * * *', 'SELECT cleanup_old_data();');
 
 -- Function: send deferred email for a meeting whose email was held back

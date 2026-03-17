@@ -6,7 +6,10 @@ if (!CONN_STRING) {
   process.exit(1);
 }
 
-const client = new pg.Client(CONN_STRING);
+const client = new pg.Client({
+  connectionString: CONN_STRING,
+  ssl: process.env.NODE_ENV === 'production' ? true : { rejectUnauthorized: false },
+});
 
 await client.connect();
 
@@ -20,11 +23,19 @@ const { rows } = await client.query(`
 
 if (rows.length > 0) {
   const tj = rows[0].transcript_json;
-  console.log('=== METADATA ===');
-  console.log(JSON.stringify(tj.metadata, null, 2));
+  if (tj && tj.metadata) {
+    console.log('=== METADATA ===');
+    console.log(JSON.stringify(tj.metadata, null, 2));
+  } else {
+    console.log('=== METADATA === (none)');
+  }
   console.log('\n=== SEGMENTS ===');
-  for (const seg of tj.segments) {
-    console.log(`[${seg.start_time} - ${seg.end_time}] ${seg.speaker}: ${seg.text}`);
+  if (tj && Array.isArray(tj.segments)) {
+    for (const seg of tj.segments) {
+      console.log(`[${seg.start_time} - ${seg.end_time}] ${seg.speaker}: ${seg.text}`);
+    }
+  } else {
+    console.log('(no segments)');
   }
 } else {
   console.log('No transcripts found');

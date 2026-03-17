@@ -5,6 +5,226 @@
 
 @layer base {
   body {
-    @apply antialiased text-gray-900 dark:text-gray-100;
+    @apply antialiased;
+    background-color: #ffffff;
+    color: #020617;
   }
+}
+
+/* ── Premium entrance animations ────────────────────────────────── */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pageReveal {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulseOrange {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(249,115,22,0); }
+  50%       { box-shadow: 0 0 0 6px rgba(249,115,22,0.12); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+@keyframes barGrow {
+  from { transform: scaleY(0); transform-origin: bottom; }
+  to   { transform: scaleY(1); transform-origin: bottom; }
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(10px) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Utility animation classes ───────────────────────────────────── */
+.animate-slide-up      { animation: slideUp 0.45s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-fade-in       { animation: fadeIn 0.4s ease both; }
+.animate-slide-in-left { animation: slideInLeft 0.35s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-count-up      { animation: countUp 0.5s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-page-reveal   { animation: pageReveal 0.55s cubic-bezier(0.16,1,0.3,1) both; }
+
+/* Stagger helpers */
+.delay-0   { animation-delay: 0ms; }
+.delay-50  { animation-delay: 50ms; }
+.delay-100 { animation-delay: 100ms; }
+.delay-150 { animation-delay: 150ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-250 { animation-delay: 250ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+
+/* ── Glass cards ───────────────────────────────────────────────── */
+.glass-card {
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.85), rgba(248,250,252,0.75));
+  border: 1px solid rgba(226,232,240,0.85);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow:
+    0 18px 50px rgba(15,23,42,0.08),
+    0 0 0 1px rgba(255,255,255,0.6) inset;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    background 0.18s ease;
+}
+.glass-card:hover {
+  border-color: rgba(248,113,22,0.9);
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.95), rgba(255,243,232,0.85));
+  box-shadow:
+    0 22px 70px rgba(15,23,42,0.12),
+    0 0 0 1px rgba(255,255,255,0.9) inset;
+  transform: translateY(-3px);
+}
+
+/* Subtle glass panel (for larger containers) */
+.glass-panel {
+  background: linear-gradient(
+    135deg,
+    rgba(255,255,255,0.95),
+    rgba(255,243,232,0.92)
+  );
+  border: 1px solid rgba(226,232,240,0.9);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 18px 60px rgba(15,23,42,0.09);
+}
+
+/* ── Orange accent border-left indicator ────────────────────────── */
+.nav-active-bar {
+  position: relative;
+}
+.nav-active-bar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 70%;
+  background: #F97316;
+  border-radius: 0 2px 2px 0;
+  transition: height 0.2s ease;
+}
+
+/* ── Skeleton shimmer ────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e8ecf0 50%, #f1f5f9 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+/* ── Premium new keyframes ───────────────────────────────────────── */
+
+/* Diagonal shine sweep across cards on hover */
+@keyframes shine {
+  from { background-position: -200% center; }
+  to   { background-position:  200% center; }
+}
+
+/* Gentle vertical float */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-7px); }
+}
+
+/* Orange glow ring pulse */
+@keyframes glowRing {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(249,115,22,0); }
+  50%       { box-shadow: 0 0 0 8px rgba(249,115,22,0.14), 0 0 30px rgba(249,115,22,0.06); }
+}
+
+/* Orb CSS background drift (login hero decorative orbs) */
+@keyframes orbDrift {
+  0%,100% { transform: translate(0,0) scale(1); opacity: 0.45; }
+  33%      { transform: translate(25px,-18px) scale(1.08); opacity: 0.6; }
+  66%      { transform: translate(-18px, 14px) scale(0.94); opacity: 0.35; }
+}
+
+/* ── New utility classes ─────────────────────────────────────────── */
+.animate-float     { animation: float 6s ease-in-out infinite; }
+.animate-glow-ring { animation: glowRing 3s ease-in-out infinite; }
+
+/* Shine card: diagonal shimmer sweeps on hover */
+.shine-card { position: relative; overflow: hidden; }
+.shine-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+  background-size: 200% 100%;
+  background-position: -200% center;
+  pointer-events: none;
+}
+.shine-card:hover::after { animation: shine 0.55s ease forwards; }
+
+/* Floating panel (white glass on warm bg) */
+.float-panel {
+  background: rgba(255,255,255,0.88);
+  border: 1px solid rgba(255,255,255,0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 2px 4px rgba(15,23,42,0.04),
+    0 8px 32px rgba(15,23,42,0.07),
+    0 0 0 1px rgba(255,255,255,1) inset;
+}
+
+/* Orange gradient text */
+.text-gradient-orange {
+  background: linear-gradient(135deg, #F97316 0%, #DC4F04 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Logo bar sub-panel in sidebar */
+.logo-bar {
+  background: linear-gradient(135deg, rgba(255,243,232,0.9) 0%, rgba(255,255,255,0.8) 100%);
+  border-bottom: 1px solid rgba(249,115,22,0.10);
+}
+
+/* ── Scrollbar polish ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #F97316; }
+
+/* ── Login hero shine effects ────────────────────────────────────── */
+
+/* Slow rotating conic shine sweep */
+@keyframes conicSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Pulsing glow bloom */
+@keyframes glowBloom {
+  0%,100% { opacity: 0.18; transform: scale(1); }
+  50%      { opacity: 0.38; transform: scale(1.12); }
 }

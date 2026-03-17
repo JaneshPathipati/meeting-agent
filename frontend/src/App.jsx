@@ -14,6 +14,8 @@ import SettingsPage from './pages/SettingsPage';
 import UserDetailPage from './pages/UserDetailPage';
 import NotFoundPage from './pages/NotFoundPage';
 import LogsPage from './pages/LogsPage';
+import LiveMonitorPage from './pages/LiveMonitorPage';
+import SearchPage from './pages/SearchPage';
 
 function App() {
   return (
@@ -31,6 +33,8 @@ function App() {
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/live" element={<LiveMonitorPage />} />
+            <Route path="/search" element={<SearchPage />} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

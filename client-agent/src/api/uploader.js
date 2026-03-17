@@ -5,7 +5,41 @@ const { enqueue, dequeueAll, markCompleted, markFailed, getRetryableItems, incre
 const { getConfig } = require('../main/config');
 
 const MAX_RETRIES = 5;
-const BACKOFF_DELAYS = [60000, 300000, 900000, 3600000, 14400000]; // 1m, 5m, 15m, 1h, 4h
+
+// Classify upload errors so we can apply appropriate retry delays.
+// Permanent errors (file_too_large) are not retried.
+function classifyError(err) {
+  const msg = (err.message || '').toLowerCase();
+  const code = err.code || '';
+  const status = err.status || err.statusCode || 0;
+
+  if (code === 'ENOTFOUND' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' ||
+      msg.includes('network') || msg.includes('fetch failed') || msg.includes('socket')) {
+    return 'network';
+  }
+  if (status === 429 || msg.includes('rate limit') || msg.includes('too many requests')) {
+    return 'rate_limit';
+  }
+  if (status >= 500 || msg.includes('server error') || msg.includes('internal error')) {
+    return 'server_error';
+  }
+  if (status === 401 || status === 403 || msg.includes('unauthorized') || msg.includes('jwt expired')) {
+    return 'auth';
+  }
+  if (status === 413 || msg.includes('too large') || msg.includes('exceeds') || msg.includes('size limit')) {
+    return 'file_too_large'; // permanent — will not retry
+  }
+  return 'unknown';
+}
+
+// Retry delay sequences (ms) indexed by attempt number (0-based)
+const RETRY_DELAYS_BY_TYPE = {
+  network:      [30000,  60000,  120000,  300000,  600000],  // 30s → 10m — wait for connectivity
+  rate_limit:   [60000, 120000,  300000,  600000,  600000],  // 1m  → 10m — wait for quota reset
+  server_error: [30000,  90000,  300000,  600000,  600000],  // 30s → 10m — server recovering
+  auth:         [ 5000,  10000,   30000,   60000,  300000],  // 5s  →  5m — fast retry after token refresh
+  unknown:      [60000, 300000,  900000, 3600000, 14400000], // 1m  →  4h — conservative default
+};
 
 function initUploadQueue() {
   log.info('[Uploader] Upload queue initialized');
@@ -152,9 +186,10 @@ async function performUpload(meetingData) {
   const segments = meetingData.transcript?.segments || [];
   const hasSummary = !!(aiData?.summary && aiData.summary.trim());
 
-  // Set ai_pregenerated based on whether we actually generated a summary.
-  // When true, the backend trigger skips OpenAI processing.
-  // When false with no segments, backend can mark as 'no_audio' instead of 'failed'.
+  // Set ai_pregenerated only when we actually pre-generated an AI summary.
+  // When true, the backend trigger skips OpenAI processing (avoids double-processing).
+  // Empty-segment meetings (no audio) are NOT marked ai_pregenerated — they are
+  // marked 'processed' directly below, which is correct without needing this flag.
   // DB constraint only allows 'local' or 'teams' — map openai-whisper to 'local'
   // The real source is preserved inside transcript_json.metadata.source for the UI badge
   const rawSource = meetingData.source || 'local';
@@ -166,7 +201,7 @@ async function performUpload(meetingData) {
       meeting_id:      meetingId,
       transcript_json: meetingData.transcript,
       source:          dbSource,
-      ai_pregenerated: hasSummary || segments.length === 0,
+      ai_pregenerated: hasSummary,
     });
 
   if (transcriptError) {
@@ -231,7 +266,7 @@ async function performUpload(meetingData) {
 
       const { error: alertError } = await supabase
         .from('tone_alerts')
-        .insert(alertRows);
+        .upsert(alertRows, { onConflict: 'meeting_id,start_time,speaker', ignoreDuplicates: true });
 
       if (alertError) {
         log.warn('[Uploader] Failed to insert tone alerts', {
@@ -300,20 +335,31 @@ async function retryQueuedItems() {
         throw new Error(result.error);
       }
     } catch (err) {
+      const errorType = classifyError(err);
+
+      // Permanent errors — don't retry, just mark failed immediately
+      if (errorType === 'file_too_large') {
+        markFailed(item.id, `[${errorType}] ${err.message}`);
+        log.error('[Uploader] Queued upload permanently failed (file too large)', {
+          queueId: item.id, error: err.message,
+        });
+        continue;
+      }
+
       const newAttempts = item.attempts + 1;
       if (newAttempts >= MAX_RETRIES) {
-        markFailed(item.id, err.message);
-        log.error('[Uploader] Queued upload permanently failed', {
-          queueId: item.id,
-          error: err.message
+        markFailed(item.id, `[${errorType}] ${err.message}`);
+        log.error('[Uploader] Queued upload permanently failed (max retries)', {
+          queueId: item.id, errorType, error: err.message,
         });
       } else {
-        const nextRetry = new Date(Date.now() + BACKOFF_DELAYS[newAttempts - 1]);
+        const delays = RETRY_DELAYS_BY_TYPE[errorType] || RETRY_DELAYS_BY_TYPE.unknown;
+        const delayMs = delays[newAttempts - 1] || delays[delays.length - 1];
+        const nextRetry = new Date(Date.now() + delayMs);
         incrementAttempts(item.id, nextRetry.toISOString());
         log.warn('[Uploader] Queued upload failed, will retry', {
-          queueId: item.id,
-          attempt: newAttempts,
-          nextRetry: nextRetry.toISOString()
+          queueId: item.id, attempt: newAttempts, errorType,
+          nextRetry: nextRetry.toISOString(), delayMs,
         });
       }
     }

@@ -167,6 +167,21 @@ function MeetingDetail({ meetingId }) {
         </div>
       </div>
 
+      {/* Live processing banner */}
+      {(meeting.status === 'uploaded' || meeting.status === 'processing') && (
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-[#FFF3E8] border border-[#FFD4AA] text-sm text-[#92400E]">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F97316] opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#F97316]" />
+          </span>
+          <span>
+            {meeting.status === 'processing'
+              ? 'AI is analyzing this meeting — transcript, summary, and tone alerts will appear automatically.'
+              : 'Meeting uploaded — AI processing will begin shortly.'}
+          </span>
+        </div>
+      )}
+
       {/* Three-panel layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">

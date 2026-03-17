@@ -18,6 +18,15 @@ log.transports.file.level = 'info';
 log.transports.file.maxSize = 10 * 1024 * 1024; // 10MB rotation
 log.transports.console.level = process.env.NODE_ENV === 'development' ? 'debug' : false;
 
+// ── Global crash guards ──────────────────────────────────────────────────────
+// Keep the agent alive on unhandled errors — silently crashing would miss meetings.
+process.on('uncaughtException', (err) => {
+  log.error('[Main] Uncaught exception (agent kept running):', err);
+});
+process.on('unhandledRejection', (reason) => {
+  log.warn('[Main] Unhandled promise rejection:', reason);
+});
+
 // Required for system audio capture (WASAPI loopback) via desktopCapturer on Windows.
 // AudioServiceOutOfProcess puts the audio service in a separate sandbox process which
 // blocks loopback capture. Disabling it runs audio in-process and enables system capture.
@@ -26,6 +35,7 @@ app.commandLine.appendSwitch('disable-features', 'AudioServiceOutOfProcess');
 let setupWindow = null;
 let tokenCheckInterval = null;
 let heartbeatInterval = null;
+let queueRetryInterval = null;
 
 const startHidden = process.argv.includes('--hidden');
 
@@ -454,7 +464,7 @@ async function startSilentOperation() {
   startLogUploader();
 
   // Periodic retry of queued uploads (every 5 minutes)
-  setInterval(async () => {
+  queueRetryInterval = setInterval(async () => {
     try {
       await retryQueuedItems();
     } catch (err) {
@@ -526,10 +536,11 @@ async function performHeartbeat() {
     const supabase = getSupabaseClient();
 
     // Update heartbeat
-    await supabase
+    const { error: hbErr } = await supabase
       .from('profiles')
       .update({ last_agent_heartbeat: new Date().toISOString() })
       .eq('id', profileId);
+    if (hbErr) log.warn('[Heartbeat] Failed to update heartbeat', { error: hbErr.message });
 
     // Check if user is locked out or deactivated
     const { data, error } = await supabase
@@ -868,15 +879,26 @@ app.on('window-all-closed', (e) => {
   // Do not quit — agent runs in background
 });
 
-app.on('before-quit', () => {
-  log.info('[Main] Application quitting');
+app.on('before-quit', (event) => {
+  log.info('[Main] Application quitting — running graceful shutdown');
+
+  // Stop all periodic timers first
+  if (tokenCheckInterval) { clearInterval(tokenCheckInterval); tokenCheckInterval = null; }
+  if (heartbeatInterval)  { clearInterval(heartbeatInterval);  heartbeatInterval  = null; }
+  if (queueRetryInterval) { clearInterval(queueRetryInterval); queueRetryInterval = null; }
+
+  // Stop detection (flushes any in-progress segment write)
   stopDetectionLoop();
+
+  // Close SQLite queue (flushes WAL, prevents corruption on hard shutdown)
   try {
     const { cleanup } = require('../database/queue');
     cleanup();
   } catch (err) {
     log.error('[Main] Queue cleanup failed', { error: err.message });
   }
+
+  log.info('[Main] Graceful shutdown complete');
 });
 
 module.exports = { showSetupWindow, startSilentOperation, handleForceLogout };

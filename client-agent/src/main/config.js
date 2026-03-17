@@ -14,9 +14,10 @@ function getEncryptionKey() {
     return machineId.substring(0, 32).padEnd(32, '0');
   } catch (err) {
     // machineIdSync can fail on some VMs or locked-down machines.
-    // Fall back to a stable but less unique key so the app still runs.
-    log.error('[Config] machineIdSync failed, using fallback key', { error: err.message });
-    return 'meetchamp-fallback-encryption-key';
+    // Fall back to a key derived from the userData path, which is unique per OS user account.
+    log.error('[Config] machineIdSync failed, using path-based fallback key', { error: err.message });
+    const fallback = require('electron').app.getPath('userData');
+    return fallback.substring(0, 32).padEnd(32, '0');
   }
 }
 

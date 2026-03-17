@@ -2,10 +2,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMeetings } from '../../hooks/useMeetings';
+import { useRealtime } from '../../hooks/useRealtime';
 import { supabase } from '../../lib/supabase';
 import { formatDateShort } from '../../utils/formatDate';
 import { formatDuration } from '../../utils/formatDuration';
-import { Video, Filter, Mail, MailX, Search, X, Send, AlertCircle } from 'lucide-react';
+import { Video, Filter, Mail, MailX, Search, X, Send, AlertCircle, Download } from 'lucide-react';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyState from '../shared/EmptyState';
 import Pagination from '../shared/Pagination';
@@ -74,28 +75,38 @@ function MeetingsList() {
   const [searchInput, setSearchInput] = useState('');
   const [emailConfirm, setEmailConfirm] = useState(null); // { id, userName, email }
   const [sending, setSending] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [exporting, setExporting] = useState(false);
   const searchRef = useRef(null);
   const debounceRef = useRef(null);
   const { meetings, loading, error, totalCount, refetch } = useMeetings(filters);
 
+  const debouncedRefetch = useCallback(() => {
+    const t = setTimeout(() => refetch(), 800);
+    return () => clearTimeout(t);
+  }, [refetch]);
+
+  useRealtime('meetings', debouncedRefetch);
+
   const handleManualEmail = async () => {
     if (!emailConfirm) return;
     setSending(true);
+    setEmailError('');
     try {
       const { data, error } = await supabase.rpc('send_manual_email', {
         p_meeting_id: emailConfirm.id,
       });
       if (error) throw error;
       if (data === false) {
-        alert('Email could not be sent. Check that the user has an email address and a summary exists.');
+        setEmailError('Email could not be sent. Check that the user has an email address and a summary exists.');
       } else {
+        setEmailConfirm(null);
         refetch();
       }
     } catch (err) {
-      alert('Failed to send email: ' + err.message);
+      setEmailError('Failed to send email: ' + err.message);
     } finally {
       setSending(false);
-      setEmailConfirm(null);
     }
   };
 
@@ -117,10 +128,72 @@ function MeetingsList() {
     searchRef.current?.focus();
   };
 
+  const handleExportCSV = async () => {
+    setExporting(true);
+    try {
+      let query = supabase
+        .from('meetings')
+        .select('start_time, duration_seconds, detected_app, detected_category, status, email_sent_at, profiles(full_name, microsoft_email, email)')
+        .order('created_at', { ascending: false })
+        .limit(5000);
+      if (filters.category) query = query.eq('detected_category', filters.category);
+      if (filters.status)   query = query.eq('status', filters.status);
+      if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom);
+      if (filters.dateTo)   query = query.lte('created_at', filters.dateTo + 'T23:59:59');
+      if (filters.search) {
+        query = query.or(
+          `profiles.full_name.ilike.%${filters.search}%,profiles.microsoft_email.ilike.%${filters.search}%`
+        );
+      }
+
+      const { data } = await query;
+      if (!data?.length) return;
+
+      const headers = ['User', 'Email', 'Date', 'Duration (min)', 'App', 'Category', 'Status', 'Email Sent'];
+      const rows = data.map(m => [
+        m.profiles?.full_name || '',
+        m.profiles?.microsoft_email || m.profiles?.email || '',
+        m.start_time ? new Date(m.start_time).toLocaleString() : '',
+        m.duration_seconds ? Math.round(m.duration_seconds / 60) : '',
+        m.detected_app || '',
+        m.detected_category?.replace(/_/g, ' ') || '',
+        m.status || '',
+        m.email_sent_at ? new Date(m.email_sent_at).toLocaleString() : 'No',
+      ]);
+
+      const csv = [headers, ...rows]
+        .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `meetings-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Meetings</h2>
+        <button
+          onClick={handleExportCSV}
+          disabled={exporting || loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:border-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-all duration-150 disabled:opacity-50"
+          title="Export current view as CSV"
+        >
+          <Download className={`h-4 w-4 ${exporting ? 'animate-bounce' : ''}`} />
+          <span>{exporting ? 'Exporting...' : 'Export CSV'}</span>
+        </button>
       </div>
 
       {/* Search bar */}
@@ -302,9 +375,12 @@ function MeetingsList() {
             <p className="text-xs text-orange-600 dark:text-orange-400 mb-5">
               This action bypasses the organization email toggle and will send the email regardless of settings.
             </p>
+            {emailError && (
+              <p className="text-xs text-red-600 dark:text-red-400 mb-4">{emailError}</p>
+            )}
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => setEmailConfirm(null)}
+                onClick={() => { setEmailConfirm(null); setEmailError(''); }}
                 disabled={sending}
                 className="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >

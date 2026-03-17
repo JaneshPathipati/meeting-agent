@@ -9,8 +9,13 @@ DECLARE
   v_transcript_text TEXT;
 BEGIN
   -- If this is an UPDATE (Teams transcript override), delete old processing results
-  -- so we re-process with the better Teams transcript (has real speaker names)
+  -- so we re-process with the better Teams transcript (has real speaker names).
+  -- Guard: skip re-fire if transcript_json is unchanged (prevents duplicate OpenAI calls
+  -- from concurrent updates or accidental no-op touches).
   IF TG_OP = 'UPDATE' THEN
+    IF OLD.transcript_json IS NOT DISTINCT FROM NEW.transcript_json THEN
+      RETURN NEW;
+    END IF;
     DELETE FROM summaries WHERE meeting_id = NEW.meeting_id;
     DELETE FROM tone_alerts WHERE meeting_id = NEW.meeting_id;
     DELETE FROM processing_jobs WHERE meeting_id = NEW.meeting_id;
@@ -30,7 +35,12 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  UPDATE transcripts SET word_count = array_length(string_to_array(v_transcript_text, ' '), 1) WHERE id = NEW.id;
+  -- Filter empty strings from double-spaces to get accurate word count
+  UPDATE transcripts
+  SET word_count = array_length(
+    array_remove(string_to_array(v_transcript_text, ' '), ''), 1
+  )
+  WHERE id = NEW.id;
 
   PERFORM call_openai(
     NEW.meeting_id,
