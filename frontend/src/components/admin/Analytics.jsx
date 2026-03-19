@@ -11,8 +11,6 @@ import {
 const CATEGORY_COLORS = {
   client_conversation: '#3B82F6',
   consultant_meeting:  '#8B5CF6',
-  internal_meeting:    '#6366F1',
-  interview:           '#14B8A6',
   target_company:      '#10B981',
   sales_service:       '#F97316',
   general:             '#6B7280',

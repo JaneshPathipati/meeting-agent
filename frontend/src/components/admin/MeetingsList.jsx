@@ -15,8 +15,6 @@ const CATEGORIES = [
   { value: '', label: 'All Categories' },
   { value: 'client_conversation', label: 'Client Conversation' },
   { value: 'consultant_meeting', label: 'Consultant Meeting' },
-  { value: 'internal_meeting', label: 'Internal Meeting' },
-  { value: 'interview', label: 'Interview' },
   { value: 'target_company', label: 'Target Company' },
   { value: 'sales_service', label: 'Sales/Service' },
   { value: 'general', label: 'General' },

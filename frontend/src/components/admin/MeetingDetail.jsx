@@ -106,7 +106,7 @@ function MeetingDetail({ meetingId }) {
       {/* ── Header ──────────────────────────────────────────────────── */}
       <div className="flex items-start gap-4 animate-fade-in">
         <button
-          onClick={() => navigate('/sessions')}
+          onClick={() => navigate('/meetings')}
           className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-[13px] font-medium text-[#64748B] transition-all hover:bg-white hover:shadow-sm flex-shrink-0 mt-0.5"
           style={{ border: '1.5px solid rgba(226,232,240,0.8)' }}
         >

@@ -86,7 +86,8 @@
       "Bash(node -e \"try { require\\(''''./src/detection/meetingDetector.js''''\\); console.log\\(''''LOADED OK''''\\); } catch\\(e\\) { console.error\\(''''LOAD FAILED:'''', e.message\\); console.error\\(e.stack\\); }\")",
       "Bash(find C:/Users/pathi/Downloads/scriptor-agent/frontend/src -name *.js -o -name *.jsx -o -name *.tsx -o -name *.ts)",
       "Bash(npx vite:*)",
-      "Bash(find /c/Users/pathi/Downloads/scriptor-agent/frontend/src -name *.css -type f)"
+      "Bash(find /c/Users/pathi/Downloads/scriptor-agent/frontend/src -name *.css -type f)",
+      "mcp__claude_ai_Supabase__list_tables"
     ]
   }
 }

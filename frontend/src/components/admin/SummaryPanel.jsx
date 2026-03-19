@@ -8,8 +8,6 @@ import { supabase } from '../../lib/supabase';
 const categoryLabels = {
   client_conversation: 'Client Conversation',
   consultant_meeting:  'Consultant Meeting',
-  internal_meeting:    'Internal Meeting',
-  interview:           'Interview',
   target_company:      'Target Company',
   sales_service:       'Sales/Service',
   general:             'General',
@@ -18,8 +16,6 @@ const categoryLabels = {
 const categoryColors = {
   client_conversation: { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
   consultant_meeting:  { bg: '#F5F3FF', color: '#7C3AED', border: '#DDD6FE' },
-  internal_meeting:    { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
-  interview:           { bg: '#F0FDFA', color: '#0D9488', border: '#99F6E4' },
   target_company:      { bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
   sales_service:       { bg: '#FFF7ED', color: '#EA580C', border: '#FED7AA' },
   general:             { bg: '#F4F2EF', color: '#64748B', border: 'rgba(226,232,240,0.8)' },

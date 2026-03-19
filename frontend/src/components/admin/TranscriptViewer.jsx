@@ -207,12 +207,12 @@ function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRe
   const segments = transcriptJson?.segments || [];
   const metadataSource = transcriptJson?.metadata?.source || transcript.source || 'local';
   const isTeams = transcript.source === 'teams' || metadataSource === 'teams';
-  const isAssemblyAI = metadataSource === 'assemblyai';
-  const sourceBadge = isTeams ? 'Teams' : isAssemblyAI ? 'AssemblyAI' : 'Local';
+  const isOpenAI = transcript.source === 'openai' || metadataSource === 'openai';
+  const sourceBadge = isTeams ? 'Teams' : isOpenAI ? 'OpenAI' : 'Local';
 
   const sourceBadgeStyle = isTeams
     ? { background: '#EEF2FF', color: '#4F46E5', border: '1px solid #C7D2FE' }
-    : isAssemblyAI
+    : isOpenAI
       ? { background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0' }
       : { background: '#F4F2EF', color: '#64748B', border: '1px solid rgba(226,232,240,0.8)' };
 
@@ -245,7 +245,7 @@ function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRe
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold"
             style={sourceBadgeStyle}
           >
-            {isTeams ? <Cloud className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
+            {isTeams ? <Cloud className="h-3 w-3" /> : isOpenAI ? <Cpu className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
             {sourceBadge}
           </span>
           {transcript.word_count && (
