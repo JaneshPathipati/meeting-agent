@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <title>Scriptor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- Logo -->
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+          <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+          <path d="M2 2l7.586 7.586"/>
+          <circle cx="11" cy="11" r="2"/>
+        </svg>
+      </div>
+      <span class="logo-text">Scriptor</span>
+    </div>
+
+    <!-- Progress bar -->
+    <div class="progress-bar">
+      <div class="progress-segment active" id="seg-1"></div>
+      <div class="progress-segment" id="seg-2"></div>
+      <div class="progress-segment" id="seg-3"></div>
+      <div class="progress-segment" id="seg-4"></div>
+    </div>
+
+    <!-- Step 1: Organization Key -->
+    <div id="step-1" class="step-panel">
+      <div class="step-label">Step 1</div>
+      <h2 class="step-title">Connect your organization</h2>
+      <p class="step-desc">Enter the enrollment key from your admin to get started.</p>
+      <div class="input-group">
+        <input type="text" id="authKeyInput" placeholder="XXXX-XXXX-XXXX-XXXX" class="input-field mono" autocomplete="off" spellcheck="false" />
+      </div>
+      <button id="verifyKeyBtn" class="primary-btn">Continue</button>
+      <div id="step1-org" class="org-badge" style="display:none;"></div>
+      <div id="step1-error" class="error"></div>
+    </div>
+
+    <!-- Step 2: Identity -->
+    <div id="step-2" class="step-panel" style="display:none;">
+      <div class="step-label">Step 2</div>
+      <h2 class="step-title">Verify your identity</h2>
+      <p class="step-desc">Enter the work email your admin registered for you.</p>
+      <div id="step2-org" class="org-badge"></div>
+      <div class="input-group">
+        <input type="email" id="emailInput" placeholder="you@company.com" class="input-field" autocomplete="off" spellcheck="false" />
+      </div>
+      <button id="verifyEmailBtn" class="primary-btn">Continue</button>
+      <div id="step2-email" class="email-badge" style="display:none;"></div>
+      <div id="step2-error" class="error"></div>
+    </div>
+
+    <!-- Step 3: Microsoft Sign-In + Profile -->
+    <div id="step-3" class="step-panel" style="display:none;">
+      <div class="step-label">Step 3</div>
+      <h2 class="step-title">Set up your account</h2>
+      <p class="step-desc">Connect Microsoft for Teams features, then fill in your details.</p>
+      <div id="step3-org-ms" class="org-badge"></div>
+
+      <div class="info-card">
+        <div class="info-card-title">Teams integration enables</div>
+        <ul>
+          <li>Speaker names from Teams accounts</li>
+          <li>High-quality Microsoft transcripts</li>
+          <li>Presence detection (even mic off)</li>
+          <li>Attendance reports</li>
+        </ul>
+      </div>
+
+      <button id="msSignInBtn" class="ms-btn">
+        <svg width="18" height="18" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        Sign in with Microsoft
+      </button>
+      <button id="skipMsSignInBtn" class="secondary-btn" style="margin-top:8px;">Skip for now</button>
+      <div id="step3-ms-status" class="email-badge" style="display:none;"></div>
+      <div id="step3-ms-error" class="error"></div>
+
+      <!-- Profile form (shown after MS sign-in or skip) -->
+      <div id="profileSection" style="display:none; margin-top:20px; border-top: 1px solid var(--border); padding-top: 20px;">
+        <div class="form-grid">
+          <div class="input-group">
+            <label for="firstName">First Name</label>
+            <input type="text" id="firstName" class="input-field" required />
+          </div>
+          <div class="input-group">
+            <label for="lastName">Last Name</label>
+            <input type="text" id="lastName" class="input-field" required />
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label>Your role</label>
+          <div class="role-grid">
+            <label class="role-option"><input type="radio" name="role" value="Consultant" /><span>Consultant</span></label>
+            <label class="role-option"><input type="radio" name="role" value="Designer" /><span>Designer</span></label>
+            <label class="role-option"><input type="radio" name="role" value="Developer" /><span>Developer</span></label>
+            <label class="role-option"><input type="radio" name="role" value="PM" /><span>PM</span></label>
+            <label class="role-option"><input type="radio" name="role" value="Marketing" /><span>Marketing</span></label>
+            <label class="role-option"><input type="radio" name="role" value="Other" /><span>Other</span></label>
+          </div>
+        </div>
+
+        <div id="customRoleGroup" class="input-group" style="display:none;">
+          <label for="customRole">Specify role</label>
+          <input type="text" id="customRole" class="input-field" placeholder="e.g. Data Scientist" />
+        </div>
+
+        <button id="continueToConsentBtn" class="primary-btn" style="margin-top:8px;">Continue</button>
+        <div id="step3-profile-error" class="error"></div>
+      </div>
+    </div>
+
+    <!-- Step 4: Consent + Finish -->
+    <div id="step-4" class="step-panel" style="display:none;">
+      <div class="step-label">Final step</div>
+      <h2 class="step-title">Review &amp; activate</h2>
+      <p class="step-desc">Review how Scriptor works, then activate the agent.</p>
+      <div id="step4-org" class="org-badge"></div>
+
+      <div class="consent-box">
+        <p>By activating, you acknowledge that:</p>
+        <ul>
+          <li>Meetings are recorded and transcribed automatically when detected.</li>
+          <li>AI-generated summaries are created from transcripts.</li>
+          <li>Data is stored securely and accessible to your organization admin.</li>
+          <li>You can withdraw consent anytime via your administrator.</li>
+        </ul>
+      </div>
+
+      <label class="consent-check">
+        <input type="checkbox" id="consentCheckbox" />
+        <span>I understand and consent to meeting recording.</span>
+      </label>
+
+      <button id="completeBtn" class="primary-btn" style="margin-top:12px;" disabled>Activate Scriptor</button>
+      <div id="step4-error" class="error"></div>
+    </div>
+
+    <!-- Success -->
+    <div id="step-success" class="step-panel" style="display:none; text-align:center;">
+      <div class="success-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <h2 class="success-title" id="success-title">You're all set</h2>
+      <p class="success-desc" id="success-desc">Scriptor is running silently in the background.</p>
+      <p class="success-subdesc" id="success-subdesc">Meetings will be detected and transcribed automatically.</p>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script src="setup.js"></script>
+</body>
+</html>

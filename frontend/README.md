@@ -1,4 +1,4 @@
-# MeetChamp - Admin Dashboard
+# Scriptor - Admin Dashboard
 
 React admin-only dashboard for viewing meetings, transcripts, summaries, and tone alerts.
 

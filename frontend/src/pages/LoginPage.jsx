@@ -157,7 +157,7 @@ function LoginPage() {
                     Get Started
                   </p>
                   <h1 className="mt-3 text-[32px] leading-[1.08] font-semibold tracking-tight text-[#020617]">
-                    Welcome to MeetChamp
+                    Welcome to Scriptor
                   </h1>
                   <p className="mt-2 text-[13px] leading-6 text-[#475569]">
                     Secure admin access for meeting transcripts, AI summaries, and tone alerts across your organization.

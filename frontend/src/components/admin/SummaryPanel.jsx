@@ -7,12 +7,22 @@ import { supabase } from '../../lib/supabase';
 
 const categoryLabels = {
   client_conversation: 'Client Conversation',
-  consultant_meeting: 'Consultant Meeting',
-  internal_meeting: 'Internal Meeting',
-  interview: 'Interview',
-  target_company: 'Target Company',
-  sales_service: 'Sales/Service',
-  general: 'General',
+  consultant_meeting:  'Consultant Meeting',
+  internal_meeting:    'Internal Meeting',
+  interview:           'Interview',
+  target_company:      'Target Company',
+  sales_service:       'Sales/Service',
+  general:             'General',
+};
+
+const categoryColors = {
+  client_conversation: { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
+  consultant_meeting:  { bg: '#F5F3FF', color: '#7C3AED', border: '#DDD6FE' },
+  internal_meeting:    { bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
+  interview:           { bg: '#F0FDFA', color: '#0D9488', border: '#99F6E4' },
+  target_company:      { bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
+  sales_service:       { bg: '#FFF7ED', color: '#EA580C', border: '#FED7AA' },
+  general:             { bg: '#F4F2EF', color: '#64748B', border: 'rgba(226,232,240,0.8)' },
 };
 
 function classifyError(errorMessage) {
@@ -20,8 +30,6 @@ function classifyError(errorMessage) {
 
   const msg = errorMessage.toLowerCase();
 
-  // Check for local processing failures FIRST (ffmpeg, commands) — their verbose output
-  // contains numbers like "401", "500" etc. in version strings that would false-match API errors
   if (msg.includes('command failed') || msg.includes('ffmpeg') || msg.includes('ffprobe') || msg.includes('maxbuffer') || msg.includes('enoent')) {
     return { type: 'local', icon: Server, color: 'amber', title: 'Audio Processing Failed', description: 'The audio file could not be processed. This may be due to a corrupted recording or insufficient resources.' };
   }
@@ -53,42 +61,46 @@ function classifyError(errorMessage) {
   return { type: 'unknown', icon: AlertTriangle, color: 'red', title: 'Processing Failed', description: 'An error occurred during summary generation.' };
 }
 
-const colorMap = {
-  red: { bg: 'bg-red-50 dark:bg-red-900/20', border: 'border-red-200 dark:border-red-800', icon: 'text-red-500 dark:text-red-400', title: 'text-red-800 dark:text-red-300', desc: 'text-red-600 dark:text-red-400', infoBg: 'bg-red-100 dark:bg-red-900/40', infoText: 'text-red-700 dark:text-red-300' },
-  amber: { bg: 'bg-amber-50 dark:bg-amber-900/20', border: 'border-amber-200 dark:border-amber-800', icon: 'text-amber-500 dark:text-amber-400', title: 'text-amber-800 dark:text-amber-300', desc: 'text-amber-600 dark:text-amber-400', infoBg: 'bg-amber-100 dark:bg-amber-900/40', infoText: 'text-amber-700 dark:text-amber-300' },
-};
-
 function ErrorCard({ errorMessage }) {
   const [showDetail, setShowDetail] = useState(false);
   const classified = classifyError(errorMessage);
   const Icon = classified.icon;
-  const colors = colorMap[classified.color] || colorMap.red;
+  const isRed = classified.color === 'red';
 
-  // Truncate very long error messages (e.g. 54KB ffmpeg dumps) for display
   const truncatedError = errorMessage && errorMessage.length > 500
     ? errorMessage.substring(0, 500) + '\n\n... (' + (errorMessage.length - 500).toLocaleString() + ' characters truncated)'
     : errorMessage;
 
   return (
-    <div className={`rounded-lg border ${colors.border} ${colors.bg} p-4`}>
+    <div
+      className="rounded-[14px] p-4"
+      style={
+        isRed
+          ? { background: '#FEF2F2', border: '1px solid #FECACA' }
+          : { background: '#FFFBEB', border: '1px solid #FDE68A' }
+      }
+    >
       <div className="flex items-start gap-3">
-        <Icon className={`h-5 w-5 mt-0.5 flex-shrink-0 ${colors.icon}`} />
+        <Icon className="h-4 w-4 mt-0.5 flex-shrink-0" style={{ color: isRed ? '#DC2626' : '#D97706' }} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h4 className={`text-sm font-semibold ${colors.title}`}>{classified.title}</h4>
+            <h4 className="text-[13px] font-semibold" style={{ color: isRed ? '#991B1B' : '#92400E' }}>{classified.title}</h4>
             {errorMessage && (
               <button
                 onClick={() => setShowDetail(!showDetail)}
-                className={`p-0.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors`}
+                className="p-0.5 rounded-full hover:bg-black/5 transition-colors"
                 title={showDetail ? 'Hide technical details' : 'View technical details'}
               >
-                <Info className={`h-3.5 w-3.5 ${colors.icon} opacity-60 hover:opacity-100`} />
+                <Info className="h-3.5 w-3.5 opacity-60 hover:opacity-100" style={{ color: isRed ? '#DC2626' : '#D97706' }} />
               </button>
             )}
           </div>
-          <p className={`text-xs mt-1 ${colors.desc}`}>{classified.description}</p>
+          <p className="text-[12px] mt-0.5 leading-relaxed" style={{ color: isRed ? '#B91C1C' : '#B45309' }}>{classified.description}</p>
           {showDetail && truncatedError && (
-            <div className={`mt-2 px-2.5 py-1.5 rounded text-xs font-mono ${colors.infoBg} ${colors.infoText} break-all max-h-40 overflow-y-auto`}>
+            <div
+              className="mt-2 px-3 py-2 rounded-[10px] text-[11px] font-mono break-all max-h-40 overflow-y-auto"
+              style={isRed ? { background: '#FEE2E2', color: '#991B1B' } : { background: '#FEF3C7', color: '#92400E' }}
+            >
               {truncatedError}
             </div>
           )}
@@ -98,66 +110,87 @@ function ErrorCard({ errorMessage }) {
   );
 }
 
+function SectionLabel({ children }) {
+  return (
+    <p className="text-[10px] uppercase tracking-[0.28em] font-semibold text-[#94A3B8] mb-2">{children}</p>
+  );
+}
+
 function StructuredSummary({ structured }) {
   if (!structured) return null;
-  // Support both camelCase (from GPT) and snake_case (from backend) field names
-  const executive_summary = structured.executive_summary || structured.executiveSummary || null;
-  const participants = structured.participants || [];
+  const executive_summary     = structured.executive_summary || structured.executiveSummary || null;
+  const participants          = structured.participants || [];
   const key_discussion_points = structured.key_discussion_points || structured.keyTopics || structured.keyDiscussionPoints || [];
-  const decisions_made = structured.decisions_made || structured.decisions || structured.decisionsMade || [];
-  const action_items = structured.action_items || structured.actionItems || [];
-  const open_questions = structured.open_questions || structured.openQuestions || [];
+  const decisions_made        = structured.decisions_made || structured.decisions || structured.decisionsMade || [];
+  const action_items          = structured.action_items || structured.actionItems || [];
+  const open_questions        = structured.open_questions || structured.openQuestions || [];
 
   return (
-    <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
+    <div className="space-y-5 text-[13px] text-[#374151]">
       {executive_summary && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Executive Summary</h4>
-          <p className="text-sm leading-relaxed">{executive_summary}</p>
+          <SectionLabel>Executive Summary</SectionLabel>
+          <p className="text-[13px] leading-relaxed text-[#374151]">{executive_summary}</p>
         </div>
       )}
 
-      {participants && participants.length > 0 && (
+      {participants.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Participants</h4>
+          <SectionLabel>Participants</SectionLabel>
           <div className="flex flex-wrap gap-1.5">
             {participants.map((p, i) => (
-              <span key={i} className="inline-flex px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{p}</span>
+              <span
+                key={i}
+                className="inline-flex px-2.5 py-0.5 rounded-full text-[11px] font-medium text-[#475569]"
+                style={{ background: '#F4F2EF', border: '1px solid rgba(226,232,240,0.8)' }}
+              >
+                {p}
+              </span>
             ))}
           </div>
         </div>
       )}
 
-      {key_discussion_points && key_discussion_points.length > 0 && (
+      {key_discussion_points.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Key Discussion Points</h4>
-          <ul className="list-disc list-inside space-y-1 text-sm">
-            {key_discussion_points.map((pt, i) => <li key={i}>{pt}</li>)}
+          <SectionLabel>Key Discussion Points</SectionLabel>
+          <ul className="space-y-1.5">
+            {key_discussion_points.map((pt, i) => (
+              <li key={i} className="flex items-start gap-2 text-[13px]">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[#F97316] flex-shrink-0" />
+                {pt}
+              </li>
+            ))}
           </ul>
         </div>
       )}
 
-      {decisions_made && decisions_made.length > 0 && (
+      {decisions_made.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Decisions Made</h4>
+          <SectionLabel>Decisions Made</SectionLabel>
           {typeof decisions_made[0] === 'string' ? (
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              {decisions_made.map((d, i) => <li key={i}>{d}</li>)}
+            <ul className="space-y-1.5">
+              {decisions_made.map((d, i) => (
+                <li key={i} className="flex items-start gap-2 text-[13px]">
+                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[#3B82F6] flex-shrink-0" />
+                  {d}
+                </li>
+              ))}
             </ul>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
+            <div className="overflow-x-auto rounded-[12px]" style={{ border: '1px solid rgba(226,232,240,0.8)' }}>
+              <table className="w-full text-[12px] border-collapse">
                 <thead>
-                  <tr className="bg-gray-50 dark:bg-gray-700">
-                    <th className="text-left p-2 border border-gray-200 dark:border-gray-600 font-medium">Decision</th>
-                    <th className="text-left p-2 border border-gray-200 dark:border-gray-600 font-medium">Context</th>
+                  <tr style={{ background: '#F4F2EF' }}>
+                    <th className="text-left px-3 py-2 font-semibold text-[#64748B]">Decision</th>
+                    <th className="text-left px-3 py-2 font-semibold text-[#64748B]">Context</th>
                   </tr>
                 </thead>
                 <tbody>
                   {decisions_made.map((d, i) => (
-                    <tr key={i} className="even:bg-gray-50 dark:even:bg-gray-700/50">
-                      <td className="p-2 border border-gray-200 dark:border-gray-600">{d.decision || d}</td>
-                      <td className="p-2 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400">{d.context || '—'}</td>
+                    <tr key={i} style={i % 2 === 1 ? { background: '#FAFAF9' } : {}}>
+                      <td className="px-3 py-2 border-t" style={{ borderColor: 'rgba(226,232,240,0.6)' }}>{d.decision || d}</td>
+                      <td className="px-3 py-2 border-t text-[#94A3B8]" style={{ borderColor: 'rgba(226,232,240,0.6)' }}>{d.context || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -167,29 +200,34 @@ function StructuredSummary({ structured }) {
         </div>
       )}
 
-      {action_items && action_items.length > 0 && (
+      {action_items.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Action Items</h4>
+          <SectionLabel>Action Items</SectionLabel>
           {typeof action_items[0] === 'string' ? (
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              {action_items.map((item, i) => <li key={i}>{item}</li>)}
+            <ul className="space-y-1.5">
+              {action_items.map((item, i) => (
+                <li key={i} className="flex items-start gap-2 text-[13px]">
+                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[#10B981] flex-shrink-0" />
+                  {item}
+                </li>
+              ))}
             </ul>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
+            <div className="overflow-x-auto rounded-[12px]" style={{ border: '1px solid rgba(226,232,240,0.8)' }}>
+              <table className="w-full text-[12px] border-collapse">
                 <thead>
-                  <tr className="bg-gray-50 dark:bg-gray-700">
-                    <th className="text-left p-2 border border-gray-200 dark:border-gray-600 font-medium">Owner</th>
-                    <th className="text-left p-2 border border-gray-200 dark:border-gray-600 font-medium">Task</th>
-                    <th className="text-left p-2 border border-gray-200 dark:border-gray-600 font-medium">Deadline</th>
+                  <tr style={{ background: '#F4F2EF' }}>
+                    <th className="text-left px-3 py-2 font-semibold text-[#64748B]">Owner</th>
+                    <th className="text-left px-3 py-2 font-semibold text-[#64748B]">Task</th>
+                    <th className="text-left px-3 py-2 font-semibold text-[#64748B]">Deadline</th>
                   </tr>
                 </thead>
                 <tbody>
                   {action_items.map((item, i) => (
-                    <tr key={i} className="even:bg-gray-50 dark:even:bg-gray-700/50">
-                      <td className="p-2 border border-gray-200 dark:border-gray-600 font-medium">{item.owner || '—'}</td>
-                      <td className="p-2 border border-gray-200 dark:border-gray-600">{item.task || item}</td>
-                      <td className="p-2 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400">{item.deadline || 'TBD'}</td>
+                    <tr key={i} style={i % 2 === 1 ? { background: '#FAFAF9' } : {}}>
+                      <td className="px-3 py-2 border-t font-medium" style={{ borderColor: 'rgba(226,232,240,0.6)' }}>{item.owner || '—'}</td>
+                      <td className="px-3 py-2 border-t" style={{ borderColor: 'rgba(226,232,240,0.6)' }}>{item.task || item}</td>
+                      <td className="px-3 py-2 border-t text-[#94A3B8]" style={{ borderColor: 'rgba(226,232,240,0.6)' }}>{item.deadline || 'TBD'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -199,17 +237,29 @@ function StructuredSummary({ structured }) {
         </div>
       )}
 
-      {open_questions && open_questions.length > 0 && (
+      {open_questions.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Open Questions</h4>
-          <ul className="list-disc list-inside space-y-1 text-sm">
-            {open_questions.map((q, i) => <li key={i}>{q}</li>)}
+          <SectionLabel>Open Questions</SectionLabel>
+          <ul className="space-y-1.5">
+            {open_questions.map((q, i) => (
+              <li key={i} className="flex items-start gap-2 text-[13px]">
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[#8B5CF6] flex-shrink-0" />
+                {q}
+              </li>
+            ))}
           </ul>
         </div>
       )}
     </div>
   );
 }
+
+const panelStyle = {
+  background: 'rgba(255,255,255,0.92)',
+  border: '1px solid rgba(226,232,240,0.7)',
+  borderRadius: '20px',
+  boxShadow: '0 4px 24px rgba(15,23,42,0.07)',
+};
 
 function SummaryPanel({ summary, category, meetingStatus, errorMessage, meeting, onEmailSent }) {
   const [sending, setSending] = useState(false);
@@ -231,69 +281,85 @@ function SummaryPanel({ summary, category, meetingStatus, errorMessage, meeting,
       setSending(false);
     }
   };
-  if (!summary) {
-    if (meetingStatus === 'failed') {
-      return (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700">
-          <div className="flex items-center gap-2 p-4 border-b dark:border-gray-700">
-            <Sparkles className="h-4 w-4 text-gray-400" />
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">AI Summary</h3>
-          </div>
-          <div className="p-4">
-            <ErrorCard errorMessage={errorMessage} />
-          </div>
-        </div>
-      );
-    }
 
-    let statusIcon = Sparkles;
-    let description = 'Summary is being generated...';
-    let showSpinner = false;
+  const catStyle = categoryColors[category] || categoryColors.general;
 
-    if (meetingStatus === 'processing') {
-      description = 'AI is analyzing the transcript...';
-      showSpinner = true;
-    } else if (meetingStatus === 'uploaded') {
-      description = 'Transcript uploaded, waiting for processing...';
-      showSpinner = true;
-    } else if (meetingStatus === 'awaiting_teams_transcript') {
-      description = 'Waiting for Teams transcript...';
-      showSpinner = true;
-    }
-
+  /* ── No summary: failed ── */
+  if (!summary && meetingStatus === 'failed') {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-5">
-        <div className="flex flex-col items-center justify-center py-8 text-center">
-          {showSpinner ? (
-            <Loader2 className="h-10 w-10 text-brand-500 dark:text-brand-400 mb-4 animate-spin" />
-          ) : (
-            <Sparkles className="h-10 w-10 text-gray-300 dark:text-gray-600 mb-4" />
-          )}
-          <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-1">No summary yet</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 max-w-[200px]">{description}</p>
+      <div style={panelStyle}>
+        <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(226,232,240,0.7)' }}>
+          <p className="text-[10px] uppercase tracking-[0.28em] font-semibold text-[#94A3B8] mb-0.5">Analysis</p>
+          <h3 className="text-[16px] font-semibold text-[#020617] flex items-center gap-2"
+            style={{ fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif' }}>
+            <Sparkles className="h-4 w-4 text-[#64748B]" />
+            AI Summary
+          </h3>
+        </div>
+        <div className="p-5">
+          <ErrorCard errorMessage={errorMessage} />
         </div>
       </div>
     );
   }
 
+  /* ── No summary: pending ── */
+  if (!summary) {
+    let description = 'Summary is being generated…';
+    let showSpinner = false;
+    if (meetingStatus === 'processing') { description = 'AI is analyzing the transcript…'; showSpinner = true; }
+    else if (meetingStatus === 'uploaded') { description = 'Transcript uploaded, waiting for processing…'; showSpinner = true; }
+    else if (meetingStatus === 'awaiting_teams_transcript') { description = 'Waiting for Teams transcript…'; showSpinner = true; }
+
+    return (
+      <div style={panelStyle}>
+        <div className="p-5 flex flex-col items-center justify-center py-12 text-center">
+          {showSpinner
+            ? <Loader2 className="h-10 w-10 text-[#F97316] mb-4 animate-spin" />
+            : <Sparkles className="h-10 w-10 text-[#CBD5E1] mb-4" />
+          }
+          <h3 className="text-[14px] font-semibold text-[#020617] mb-1">No summary yet</h3>
+          <p className="text-[12px] text-[#94A3B8] max-w-[200px] leading-relaxed">{description}</p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Summary available ── */
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700">
-      <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-          <Sparkles className="h-4 w-4" />
-          AI Summary
-        </h3>
-        {category && (
-          <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-400">
-            {categoryLabels[category] || category}
-          </span>
-        )}
+    <div style={panelStyle}>
+      {/* Header */}
+      <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(226,232,240,0.7)' }}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.28em] font-semibold text-[#94A3B8] mb-0.5">Analysis</p>
+            <h3
+              className="text-[16px] font-semibold text-[#020617] flex items-center gap-2"
+              style={{ fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif' }}
+            >
+              <Sparkles className="h-4 w-4 text-[#64748B]" />
+              AI Summary
+            </h3>
+          </div>
+          {category && (
+            <span
+              className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold flex-shrink-0 mt-1"
+              style={{ background: catStyle.bg, color: catStyle.color, border: `1px solid ${catStyle.border}` }}
+            >
+              {categoryLabels[category] || category}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="p-4">
+      <div className="p-5 space-y-5">
+        {/* Email action row */}
         {meeting && meetingStatus === 'processed' && (
-          <div className="flex items-center justify-between mb-3 pb-3 border-b border-gray-100 dark:border-gray-700">
-            <span className="text-xs text-gray-500 dark:text-gray-400">
+          <div
+            className="flex items-center justify-between gap-3 p-3.5 rounded-[14px]"
+            style={{ background: '#F9F8F6', border: '1px solid rgba(226,232,240,0.8)' }}
+          >
+            <span className="text-[12px] text-[#64748B]">
               {meeting.email_sent_at
                 ? `Sent ${new Date(meeting.email_sent_at).toLocaleString()}`
                 : 'Email not sent yet'}
@@ -301,43 +367,43 @@ function SummaryPanel({ summary, category, meetingStatus, errorMessage, meeting,
             <button
               onClick={handleSendEmail}
               disabled={sending}
-              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[10px] text-[12px] font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 flex-shrink-0"
+              style={
                 meeting.email_sent_at
-                  ? 'border-brand-300 dark:border-brand-600 text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-900/30 hover:bg-brand-100 dark:hover:bg-brand-900/50'
-                  : 'border-orange-300 dark:border-orange-600 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/30 hover:bg-orange-100 dark:hover:bg-orange-900/50'
-              }`}
+                  ? { background: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)', boxShadow: '0 2px 8px rgba(59,130,246,0.35)' }
+                  : { background: 'linear-gradient(135deg, #F97316 0%, #DC4F04 100%)', boxShadow: '0 2px 8px rgba(249,115,22,0.35)' }
+              }
             >
-              {sending ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Sending...</>
-              ) : meeting.email_sent_at ? (
-                <><RotateCcw className="h-3.5 w-3.5" /> Resend</>
-              ) : (
-                <><Send className="h-3.5 w-3.5" /> Send Email</>
-              )}
+              {sending
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Sending…</>
+                : meeting.email_sent_at
+                  ? <><RotateCcw className="h-3.5 w-3.5" /> Resend</>
+                  : <><Send className="h-3.5 w-3.5" /> Send Email</>
+              }
             </button>
           </div>
         )}
 
-        {/* Summary text (always show if available) */}
+        {/* Markdown content */}
         {summary.content && (
-          <div className="prose prose-sm dark:prose-invert max-w-none text-gray-700 dark:text-gray-300 leading-relaxed
-            prose-headings:text-gray-900 dark:prose-headings:text-white prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
-            prose-h2:text-base prose-h2:border-b prose-h2:border-gray-200 dark:prose-h2:border-gray-700 prose-h2:pb-1
-            prose-strong:text-gray-900 dark:prose-strong:text-white
-            prose-li:my-0.5
-            prose-table:text-xs prose-th:bg-gray-50 dark:prose-th:bg-gray-700 prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5
-            prose-table:border prose-table:border-gray-200 dark:prose-table:border-gray-700
-            prose-th:border prose-th:border-gray-200 dark:prose-th:border-gray-700
-            prose-td:border prose-td:border-gray-200 dark:prose-td:border-gray-700">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {summary.content}
-            </ReactMarkdown>
+          <div
+            className="prose prose-sm max-w-none leading-relaxed text-[#374151]
+              prose-headings:text-[#020617] prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
+              prose-h2:text-[15px] prose-h2:border-b prose-h2:pb-1
+              prose-strong:text-[#020617]
+              prose-li:my-0.5
+              prose-table:text-[12px]
+              prose-th:bg-[#F4F2EF] prose-th:px-3 prose-th:py-1.5
+              prose-td:px-3 prose-td:py-1.5"
+            style={{ '--tw-prose-body': '#374151', '--tw-prose-headings': '#020617' }}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary.content}</ReactMarkdown>
           </div>
         )}
 
-        {/* Structured summary sections (if available) */}
+        {/* Structured sections */}
         {summary.structured_json && (
-          <div className={summary.content ? 'mt-4 pt-4 border-t border-gray-100 dark:border-gray-700' : ''}>
+          <div className={summary.content ? 'pt-5 border-t' : ''} style={summary.content ? { borderColor: 'rgba(226,232,240,0.7)' } : {}}>
             <StructuredSummary structured={summary.structured_json} />
           </div>
         )}

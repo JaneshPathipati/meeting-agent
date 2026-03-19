@@ -1,36 +1,82 @@
 // file: frontend/src/components/admin/UsersList.jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { UserPlus, Edit2, UserX, Wifi, WifiOff, Lock, Unlock, Trash2, Mail, MailX, FileText, FileX, Search, X } from 'lucide-react';
+import {
+  UserPlus, Edit2, UserX, Wifi, WifiOff, Lock, Unlock,
+  Trash2, Mail, MailX, FileText, FileX, Search, X,
+  Users, CheckCircle2, Activity,
+} from 'lucide-react';
 import { formatRelative } from '../../utils/formatDate';
 import LoadingSpinner from '../shared/LoadingSpinner';
-import EmptyState from '../shared/EmptyState';
 import AddUserModal from './AddUserModal';
 import EditUserModal from './EditUserModal';
 
+/* ── Confirm dialog ──────────────────────────────────────────────── */
 function ConfirmDialog({ title, message, confirmLabel, confirmColor, onConfirm, onCancel }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-sm mx-4 p-5">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-5">{message}</p>
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg dark:text-gray-300 dark:hover:bg-gray-700"
-          >
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50"
+      style={{ fontFamily: 'Onest, ui-sans-serif, system-ui, sans-serif' }}>
+      <div className="bg-white w-full max-w-sm mx-4 overflow-hidden"
+        style={{ borderRadius: '22px', boxShadow: '0 24px 60px rgba(15,23,42,0.22)' }}>
+        <div className="px-6 pt-6 pb-5">
+          <h3 className="text-[16px] font-bold text-[#020617] mb-2">{title}</h3>
+          <p className="text-[13px] text-[#64748B] leading-relaxed">{message}</p>
+        </div>
+        <div className="flex gap-3 px-6 pb-6">
+          <button onClick={onCancel}
+            className="flex-1 py-2.5 rounded-[12px] text-[13px] font-medium text-[#475569] transition-colors hover:bg-[#F4F2EF]"
+            style={{ border: '1px solid rgba(226,232,240,0.9)' }}>
             Cancel
           </button>
-          <button
-            onClick={onConfirm}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${confirmColor || 'bg-brand-600 hover:bg-brand-700'}`}
-          >
+          <button onClick={onConfirm}
+            className={`flex-1 py-2.5 rounded-[12px] text-[13px] font-semibold text-white transition-all ${confirmColor || 'bg-[#F97316] hover:bg-[#EA580C]'}`}>
             {confirmLabel || 'Confirm'}
           </button>
         </div>
       </div>
+    </div>,
+    document.body
+  );
+}
+
+/* ── Avatar ──────────────────────────────────────────────────────── */
+const AVATAR_COLORS = [
+  ['#F97316', '#FFEDD5'], ['#3B82F6', '#DBEAFE'], ['#8B5CF6', '#EDE9FE'],
+  ['#10B981', '#D1FAE5'], ['#F59E0B', '#FEF3C7'], ['#EC4899', '#FCE7F3'],
+];
+function Avatar({ name, size = 40 }) {
+  const idx = (name?.charCodeAt(0) || 0) % AVATAR_COLORS.length;
+  const [fg, bg] = AVATAR_COLORS[idx];
+  const initials = (name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  return (
+    <div className="flex-shrink-0 flex items-center justify-center font-bold select-none"
+      style={{ width: size, height: size, borderRadius: size / 3, background: bg, color: fg, fontSize: size * 0.36 }}>
+      {initials}
     </div>
+  );
+}
+
+/* ── Toggle pill ─────────────────────────────────────────────────── */
+function TogglePill({ on, onColor, onBg, offColor = '#94A3B8', offBg = '#F1F5F9', onIcon: OnIcon, offIcon: OffIcon, label, onClick }) {
+  return (
+    <button onClick={onClick}
+      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all hover:opacity-80"
+      style={{ background: on ? onBg : offBg, color: on ? onColor : offColor }}>
+      {on ? <OnIcon className="h-3 w-3" /> : <OffIcon className="h-3 w-3" />}
+      {on ? 'On' : 'Off'}
+    </button>
+  );
+}
+
+/* ── Action icon button ──────────────────────────────────────────── */
+function Btn({ onClick, title, children, danger }) {
+  return (
+    <button onClick={onClick} title={title}
+      className={`p-1.5 rounded-lg transition-all duration-100 ${danger ? 'hover:bg-red-50' : 'hover:bg-[#F4F2EF]'}`}>
+      {children}
+    </button>
   );
 }
 
@@ -41,388 +87,326 @@ function UsersList() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [confirm, setConfirm] = useState(null);
-  const [actionError, setActionError] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const searchRef = useRef(null);
   const debounceRef = useRef(null);
 
-  const handleSearchChange = (value) => {
-    setSearchInput(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      setSearchTerm(value.trim().toLowerCase());
-    }, 200);
-  };
-
-  useEffect(() => {
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, []);
-
-  const clearSearch = () => {
-    setSearchInput('');
-    setSearchTerm('');
-    searchRef.current?.focus();
-  };
-
   const filteredUsers = useMemo(() => {
     if (!searchTerm) return users;
     return users.filter(u => {
-      const name = (u.full_name || '').toLowerCase();
+      const name  = (u.full_name || '').toLowerCase();
       const email = (u.microsoft_email || u.email || '').toLowerCase();
       return name.includes(searchTerm) || email.includes(searchTerm);
     });
   }, [users, searchTerm]);
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
+  const stats = useMemo(() => ({
+    total:    users.length,
+    active:   users.filter(u => u.is_active).length,
+    online:   users.filter(u => u.last_agent_heartbeat && new Date(u.last_agent_heartbeat).getTime() > Date.now() - 15 * 60 * 1000).length,
+  }), [users]);
+
+  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
   async function fetchUsers() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('role', 'user')
-      .order('full_name', { ascending: true });
-
+    const { data, error } = await supabase.from('profiles').select('*').eq('role', 'user').order('full_name');
     if (!error) setUsers(data || []);
     setLoading(false);
   }
 
-  function requestToggleActive(user) {
+  function handleSearch(val) {
+    setSearchInput(val);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setSearchTerm(val.trim().toLowerCase()), 200);
+  }
+
+  function isOnline(hb) { return !!hb && new Date(hb).getTime() > Date.now() - 15 * 60 * 1000; }
+
+  /* ── Confirm helpers ── */
+  function confirmAction(title, message, label, color, onConfirm) {
+    setConfirm({ title, message, confirmLabel: label, confirmColor: color, onConfirm: () => { onConfirm(); } });
+  }
+
+  function doToggleActive(user) {
     const action = user.is_active ? 'Deactivate' : 'Activate';
-    const desc = user.is_active
-      ? `This will deactivate ${user.full_name}. Their agent will stop on the next heartbeat and they won't be able to re-enroll until reactivated.`
-      : `This will reactivate ${user.full_name}. They will be able to enroll again.`;
-    setConfirm({
-      title: `${action} User?`,
-      message: desc,
-      confirmLabel: action,
-      confirmColor: user.is_active ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700',
-      onConfirm: async () => {
-        const { error } = await supabase
-          .from('profiles')
-          .update({ is_active: !user.is_active })
-          .eq('id', user.id);
+    confirmAction(`${action} Member?`,
+      user.is_active ? `Deactivating ${user.full_name}. Their agent will stop on next heartbeat.`
+                     : `Reactivating ${user.full_name}. They can re-enroll.`,
+      action, user.is_active ? 'bg-red-500 hover:bg-red-600' : 'bg-[#10B981] hover:bg-emerald-600',
+      async () => {
+        await supabase.from('profiles').update({ is_active: !user.is_active }).eq('id', user.id);
         setConfirm(null);
-        if (error) { setActionError('Failed to update status: ' + error.message); return; }
-        setActionError('');
-        setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_active: !u.is_active } : u));
-      },
-    });
+        setUsers(p => p.map(u => u.id === user.id ? { ...u, is_active: !u.is_active } : u));
+      });
   }
 
-  function requestToggleLockOut(user) {
-    const action = user.is_locked_out ? 'Unlock' : 'Lock Out';
-    const desc = user.is_locked_out
-      ? `This will unlock ${user.full_name}. They will be able to re-enroll using the setup wizard.`
-      : `This will lock out ${user.full_name}. Their agent will stop on the next heartbeat and local credentials will be cleared. They must re-enroll to use MeetChamp again.`;
-    setConfirm({
-      title: `${action} User?`,
-      message: desc,
-      confirmLabel: action,
-      confirmColor: user.is_locked_out ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700',
-      onConfirm: async () => {
-        const newLocked = !user.is_locked_out;
-        const { error } = await supabase
-          .from('profiles')
-          .update({ is_locked_out: newLocked })
-          .eq('id', user.id);
+  function doToggleLock(user) {
+    const locking = !user.is_locked_out;
+    confirmAction(`${locking ? 'Lock Out' : 'Unlock'} Member?`,
+      locking ? `${user.full_name} will be locked out and must re-enroll.`
+              : `${user.full_name} can re-enroll via the setup wizard.`,
+      locking ? 'Lock Out' : 'Unlock',
+      locking ? 'bg-amber-500 hover:bg-amber-600' : 'bg-[#10B981] hover:bg-emerald-600',
+      async () => {
+        await supabase.from('profiles').update({ is_locked_out: locking }).eq('id', user.id);
         setConfirm(null);
-        if (error) { setActionError('Failed to update lock status: ' + error.message); return; }
-        setActionError('');
-        setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_locked_out: newLocked } : u));
-      },
-    });
+        setUsers(p => p.map(u => u.id === user.id ? { ...u, is_locked_out: locking } : u));
+      });
   }
 
-  function requestToggleSummary(user) {
+  function doToggleSummary(user) {
     const enabling = user.summary_enabled === false;
-    const action = enabling ? 'Enable' : 'Disable';
-    const desc = enabling
-      ? `This will enable AI summary generation for ${user.full_name}. Summaries and tone analysis will be generated after each meeting.`
-      : `This will disable AI summary generation for ${user.full_name}. Meetings will still be recorded and transcribed, but no summary will be generated. Email notifications will also stop.`;
-    setConfirm({
-      title: `${action} Summary Generation?`,
-      message: desc,
-      confirmLabel: action,
-      confirmColor: enabling ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700',
-      onConfirm: async () => {
-        const updates = { summary_enabled: enabling };
-        if (!enabling) updates.email_enabled = false;
-        const { error } = await supabase
-          .from('profiles')
-          .update(updates)
-          .eq('id', user.id);
+    confirmAction(`${enabling ? 'Enable' : 'Disable'} Summaries?`,
+      enabling ? `AI summaries will be generated for ${user.full_name} after each meeting.`
+               : `Summaries disabled for ${user.full_name}. Meetings still recorded.`,
+      enabling ? 'Enable' : 'Disable',
+      enabling ? 'bg-[#10B981] hover:bg-emerald-600' : 'bg-amber-500 hover:bg-amber-600',
+      async () => {
+        const upd = { summary_enabled: enabling };
+        if (!enabling) upd.email_enabled = false;
+        await supabase.from('profiles').update(upd).eq('id', user.id);
         setConfirm(null);
-        if (error) { setActionError('Failed to update summary setting: ' + error.message); return; }
-        setActionError('');
-        setUsers(prev => prev.map(u => u.id === user.id ? { ...u, ...updates } : u));
-      },
-    });
+        setUsers(p => p.map(u => u.id === user.id ? { ...u, ...upd } : u));
+      });
   }
 
-  function requestToggleEmail(user) {
+  function doToggleEmail(user) {
     const enabling = !user.email_enabled;
-    const action = enabling ? 'Enable' : 'Disable';
-    const desc = enabling
-      ? `This will enable email summary notifications for ${user.full_name}. They will receive an email after each meeting is processed.`
-      : `This will disable email summary notifications for ${user.full_name}. They will no longer receive summary emails after meetings.`;
-    setConfirm({
-      title: `${action} Email Notifications?`,
-      message: desc,
-      confirmLabel: action,
-      confirmColor: enabling ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700',
-      onConfirm: async () => {
-        const { error } = await supabase
-          .from('profiles')
-          .update({ email_enabled: enabling })
-          .eq('id', user.id);
+    confirmAction(`${enabling ? 'Enable' : 'Disable'} Email Notifications?`,
+      enabling ? `${user.full_name} will receive summary emails after meetings.`
+               : `${user.full_name} will no longer receive summary emails.`,
+      enabling ? 'Enable' : 'Disable',
+      enabling ? 'bg-[#10B981] hover:bg-emerald-600' : 'bg-amber-500 hover:bg-amber-600',
+      async () => {
+        await supabase.from('profiles').update({ email_enabled: enabling }).eq('id', user.id);
         setConfirm(null);
-        if (error) { setActionError('Failed to update email setting: ' + error.message); return; }
-        setActionError('');
-        setUsers(prev => prev.map(u => u.id === user.id ? { ...u, email_enabled: enabling } : u));
-      },
-    });
+        setUsers(p => p.map(u => u.id === user.id ? { ...u, email_enabled: enabling } : u));
+      });
   }
 
-  function requestDeleteUser(user) {
-    setConfirm({
-      title: 'Delete User?',
-      message: `Are you sure you want to permanently delete ${user.full_name} (${user.microsoft_email || user.email})? This will also delete all their meetings, transcripts, and summaries. This action cannot be undone.`,
-      confirmLabel: 'Delete',
-      confirmColor: 'bg-red-600 hover:bg-red-700',
-      onConfirm: async () => {
-        const { error } = await supabase
-          .from('profiles')
-          .delete()
-          .eq('id', user.id);
+  function doDelete(user) {
+    confirmAction('Delete Member?',
+      `Permanently delete ${user.full_name}? All meetings, transcripts, and summaries will be removed. Cannot be undone.`,
+      'Delete', 'bg-red-500 hover:bg-red-600',
+      async () => {
+        await supabase.from('profiles').delete().eq('id', user.id);
         setConfirm(null);
-        if (error) { setActionError('Failed to delete user: ' + error.message); return; }
-        setActionError('');
-        setUsers(prev => prev.filter(u => u.id !== user.id));
-      },
-    });
+        setUsers(p => p.filter(u => u.id !== user.id));
+      });
   }
 
-  function isAgentOnline(heartbeat) {
-    if (!heartbeat) return false;
-    return new Date(heartbeat).getTime() > Date.now() - 15 * 60 * 1000;
-  }
-
-  if (loading) return <LoadingSpinner size="lg" className="py-12" />;
+  if (loading) return <LoadingSpinner size="lg" className="py-16" />;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Users</h2>
+    <div className="space-y-6 animate-page-reveal">
+
+      {/* ── Page header ─────────────────────────────────────────── */}
+      <div className="flex items-end justify-between animate-fade-in">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.34em] text-[#64748B]">Management</p>
+          <h2 className="mt-1 text-[28px] font-semibold tracking-tight text-[#020617] leading-tight">Members</h2>
+        </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
-        >
+          className="flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold text-white rounded-[14px] transition-all duration-150 hover:-translate-y-0.5 active:translate-y-0"
+          style={{ background: 'linear-gradient(135deg, #F97316 0%, #DC4F04 100%)', boxShadow: '0 4px 16px rgba(249,115,22,0.40)' }}>
           <UserPlus className="h-4 w-4" />
-          Add User
+          Add Member
         </button>
       </div>
 
-      {/* Search bar */}
-      <div className="relative">
-        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-          <Search className="h-4.5 w-4.5 text-gray-400" />
-        </div>
+      {/* ── Stat chips ──────────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-3 animate-slide-up" style={{ animationDelay: '40ms' }}>
+        {[
+          { icon: Users,        label: 'Total',  value: stats.total,  color: '#F97316', bg: '#FFEDD5' },
+          { icon: CheckCircle2, label: 'Active', value: stats.active, color: '#059669', bg: '#D1FAE5' },
+          { icon: Activity,     label: 'Online', value: stats.online, color: '#3B82F6', bg: '#DBEAFE' },
+        ].map(({ icon: Icon, label, value, color, bg }) => (
+          <div key={label} className="flex items-center gap-2 px-4 py-2 rounded-[12px]"
+            style={{ background: 'rgba(255,255,255,0.85)', border: '1px solid rgba(226,232,240,0.7)', boxShadow: '0 2px 6px rgba(15,23,42,0.05)' }}>
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg" style={{ background: bg }}>
+              <Icon className="h-3.5 w-3.5" style={{ color }} />
+            </span>
+            <span className="text-[13px] font-semibold text-[#020617]">{value}</span>
+            <span className="text-[11px] text-[#94A3B8] font-medium">{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Search ──────────────────────────────────────────────── */}
+      <div className="relative animate-slide-up" style={{ animationDelay: '80ms' }}>
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#CBD5E1] pointer-events-none" />
         <input
           ref={searchRef}
           type="text"
           value={searchInput}
-          onChange={(e) => handleSearchChange(e.target.value)}
-          placeholder="Search by name or email..."
-          className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm bg-white shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 dark:bg-gray-800 dark:border-gray-700 dark:text-white dark:placeholder-gray-500 dark:focus:ring-brand-400/40 dark:focus:border-brand-400"
+          onChange={e => handleSearch(e.target.value)}
+          placeholder="Search by name or email…"
+          className="w-full pl-11 pr-10 py-3 rounded-[16px] text-[13px] text-[#020617] placeholder-[#CBD5E1] outline-none transition-all duration-200"
+          style={{ background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(226,232,240,0.7)', boxShadow: '0 2px 10px rgba(15,23,42,0.05)' }}
+          onFocus={e => e.currentTarget.style.borderColor = 'rgba(249,115,22,0.45)'}
+          onBlur={e => e.currentTarget.style.borderColor = 'rgba(226,232,240,0.7)'}
         />
         {searchInput && (
-          <button
-            onClick={clearSearch}
-            className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          >
+          <button onClick={() => { setSearchInput(''); setSearchTerm(''); searchRef.current?.focus(); }}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-[#CBD5E1] hover:text-[#94A3B8] transition-colors">
             <X className="h-4 w-4" />
           </button>
         )}
       </div>
 
-      {actionError && (
-        <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm dark:bg-red-900/30 dark:text-red-400">
-          {actionError}
-        </div>
-      )}
-
+      {/* ── Member cards ────────────────────────────────────────── */}
       {filteredUsers.length === 0 ? (
-        searchTerm ? (
-          <EmptyState
-            icon={Search}
-            title="No results found"
-            description={`No users match "${searchInput}"`}
-          />
-        ) : (
-          <EmptyState title="No users yet" description="Add monitored employees to get started" />
-        )
+        <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
+          <div className="h-16 w-16 rounded-[20px] flex items-center justify-center mb-4"
+            style={{ background: '#F4F2EF', border: '1px solid rgba(226,232,240,0.7)' }}>
+            <Users className="h-7 w-7 text-[#CBD5E1]" />
+          </div>
+          <p className="text-[15px] font-semibold text-[#020617] mb-1">
+            {searchTerm ? 'No results found' : 'No members yet'}
+          </p>
+          <p className="text-[13px] text-[#94A3B8]">
+            {searchTerm ? `No members match "${searchInput}"` : 'Click "Add Member" to get started'}
+          </p>
+        </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Name</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Email</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Role</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Agent</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Summary</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Email</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Status</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y dark:divide-gray-700">
-                {filteredUsers.map(user => (
-                  <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                    <td
-                      className="px-4 py-3 font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 cursor-pointer hover:underline"
+        <div className="space-y-3">
+          {filteredUsers.map((user, i) => {
+            const online = isOnline(user.last_agent_heartbeat);
+            return (
+              <div
+                key={user.id}
+                className="group animate-slide-up"
+                style={{
+                  animationDelay: `${100 + i * 40}ms`,
+                  background: 'rgba(255,255,255,0.88)',
+                  border: '1px solid rgba(226,232,240,0.65)',
+                  borderRadius: '18px',
+                  boxShadow: '0 2px 8px rgba(15,23,42,0.04)',
+                  transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 6px 24px rgba(15,23,42,0.09)'; e.currentTarget.style.borderColor = 'rgba(249,115,22,0.20)'; }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(15,23,42,0.04)'; e.currentTarget.style.borderColor = 'rgba(226,232,240,0.65)'; }}
+              >
+                <div className="flex items-center gap-4 px-5 py-4">
+
+                  {/* Avatar */}
+                  <Avatar name={user.full_name} size={44} />
+
+                  {/* Name + email */}
+                  <div className="min-w-0 flex-1">
+                    <button
                       onClick={() => navigate('/users/' + user.id)}
+                      className="text-[14px] font-semibold text-[#F97316] hover:text-[#EA580C] transition-colors truncate block text-left"
                     >
                       {user.full_name}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{user.microsoft_email || user.email}</td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{user.job_role === 'Other' ? user.job_role_custom || 'Other' : user.job_role || '-'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
-                        {isAgentOnline(user.last_agent_heartbeat) ? (
-                          <>
-                            <Wifi className="h-4 w-4 text-green-500" />
-                            <span className="text-green-600 text-xs">Online</span>
-                          </>
-                        ) : (
-                          <>
-                            <WifiOff className="h-4 w-4 text-gray-400" />
-                            <span className="text-gray-400 text-xs">
-                              {user.last_agent_heartbeat ? formatRelative(user.last_agent_heartbeat) : 'Never'}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                        user.summary_enabled !== false
-                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                          : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                      }`}>
-                        {user.summary_enabled !== false ? <FileText className="h-3 w-3" /> : <FileX className="h-3 w-3" />}
-                        {user.summary_enabled !== false ? 'On' : 'Off'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                        user.email_enabled !== false
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                          : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                      }`}>
-                        {user.email_enabled !== false ? <Mail className="h-3 w-3" /> : <MailX className="h-3 w-3" />}
-                        {user.email_enabled !== false ? 'On' : 'Off'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col items-start gap-0.5">
-                        <span className={`inline-block w-fit px-2 py-0.5 rounded-full text-xs font-medium ${
-                          user.is_active
-                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                        }`}>
-                          {user.is_active ? 'Active' : 'Inactive'}
+                    </button>
+                    <p className="text-[12px] text-[#94A3B8] truncate mt-0.5">{user.microsoft_email || user.email}</p>
+                  </div>
+
+                  {/* Role */}
+                  <div className="hidden sm:block min-w-[90px]">
+                    <span className="text-[12px] text-[#64748B]">
+                      {user.job_role === 'Other' ? user.job_role_custom || 'Other' : user.job_role || '—'}
+                    </span>
+                  </div>
+
+                  {/* Agent status */}
+                  <div className="hidden md:flex items-center gap-1.5 min-w-[90px]">
+                    {online ? (
+                      <>
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-60" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#10B981]" />
                         </span>
-                        {user.is_locked_out && (
-                          <span className="inline-block w-fit px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                            Locked
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setEditingUser(user)}
-                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                          title="Edit"
-                        >
-                          <Edit2 className="h-4 w-4 text-gray-500" />
-                        </button>
-                        <button
-                          onClick={() => requestToggleSummary(user)}
-                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                          title={user.summary_enabled !== false ? 'Disable summary generation' : 'Enable summary generation'}
-                        >
-                          {user.summary_enabled !== false
-                            ? <FileText className="h-4 w-4 text-purple-500" />
-                            : <FileX className="h-4 w-4 text-gray-400" />
-                          }
-                        </button>
-                        <button
-                          onClick={() => requestToggleEmail(user)}
-                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                          title={user.email_enabled !== false ? 'Disable email notifications' : 'Enable email notifications'}
-                        >
-                          {user.email_enabled !== false
-                            ? <Mail className="h-4 w-4 text-blue-500" />
-                            : <MailX className="h-4 w-4 text-gray-400" />
-                          }
-                        </button>
-                        <button
-                          onClick={() => requestToggleLockOut(user)}
-                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                          title={user.is_locked_out ? 'Unlock (allow re-enrollment)' : 'Lock Out (force logout)'}
-                        >
-                          {user.is_locked_out
-                            ? <Unlock className="h-4 w-4 text-green-500" />
-                            : <Lock className="h-4 w-4 text-amber-500" />
-                          }
-                        </button>
-                        <button
-                          onClick={() => requestToggleActive(user)}
-                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                          title={user.is_active ? 'Deactivate' : 'Activate'}
-                        >
-                          <UserX className={`h-4 w-4 ${user.is_active ? 'text-red-500' : 'text-green-500'}`} />
-                        </button>
-                        <button
-                          onClick={() => requestDeleteUser(user)}
-                          className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
-                          title="Delete user permanently"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-400" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        <span className="text-[12px] font-medium text-[#10B981]">Online</span>
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff className="h-3.5 w-3.5 text-[#CBD5E1]" />
+                        <span className="text-[12px] text-[#CBD5E1]">
+                          {user.last_agent_heartbeat ? formatRelative(user.last_agent_heartbeat) : 'Never'}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Toggle pills */}
+                  <div className="hidden lg:flex items-center gap-2">
+                    <TogglePill
+                      on={user.summary_enabled !== false}
+                      onColor="#7C3AED" onBg="#EDE9FE"
+                      onIcon={FileText} offIcon={FileX}
+                      onClick={() => doToggleSummary(user)}
+                    />
+                    <TogglePill
+                      on={user.email_enabled !== false}
+                      onColor="#2563EB" onBg="#DBEAFE"
+                      onIcon={Mail} offIcon={MailX}
+                      onClick={() => doToggleEmail(user)}
+                    />
+                  </div>
+
+                  {/* Status badge */}
+                  <div className="flex flex-col gap-1 items-end min-w-[72px]">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold"
+                      style={user.is_active ? { background: '#D1FAE5', color: '#059669' } : { background: '#F1F5F9', color: '#94A3B8' }}>
+                      {user.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                    {user.is_locked_out && (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold"
+                        style={{ background: '#FEE2E2', color: '#DC2626' }}>
+                        Locked
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Divider */}
+                  <div className="hidden sm:block h-8 w-px flex-shrink-0" style={{ background: 'rgba(226,232,240,0.6)' }} />
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-0.5">
+                    <Btn onClick={() => setEditingUser(user)} title="Edit member">
+                      <Edit2 className="h-3.5 w-3.5 text-[#64748B]" />
+                    </Btn>
+                    <Btn onClick={() => doToggleSummary(user)} title={user.summary_enabled !== false ? 'Disable summary' : 'Enable summary'}>
+                      {user.summary_enabled !== false
+                        ? <FileText className="h-3.5 w-3.5 text-[#8B5CF6]" />
+                        : <FileX className="h-3.5 w-3.5 text-[#CBD5E1]" />}
+                    </Btn>
+                    <Btn onClick={() => doToggleEmail(user)} title={user.email_enabled !== false ? 'Disable email' : 'Enable email'}>
+                      {user.email_enabled !== false
+                        ? <Mail className="h-3.5 w-3.5 text-[#3B82F6]" />
+                        : <MailX className="h-3.5 w-3.5 text-[#CBD5E1]" />}
+                    </Btn>
+                    <Btn onClick={() => doToggleLock(user)} title={user.is_locked_out ? 'Unlock' : 'Lock out'}>
+                      {user.is_locked_out
+                        ? <Unlock className="h-3.5 w-3.5 text-[#10B981]" />
+                        : <Lock className="h-3.5 w-3.5 text-[#F59E0B]" />}
+                    </Btn>
+                    <Btn onClick={() => doToggleActive(user)} title={user.is_active ? 'Deactivate' : 'Activate'}>
+                      <UserX className={`h-3.5 w-3.5 ${user.is_active ? 'text-[#EF4444]' : 'text-[#10B981]'}`} />
+                    </Btn>
+                    <Btn onClick={() => doDelete(user)} title="Delete member" danger>
+                      <Trash2 className="h-3.5 w-3.5 text-[#EF4444]" />
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {showAddModal && (
-        <AddUserModal
-          onClose={() => setShowAddModal(false)}
-          onAdded={() => { setShowAddModal(false); fetchUsers(); }}
-        />
+        <AddUserModal onClose={() => setShowAddModal(false)} onAdded={() => { setShowAddModal(false); fetchUsers(); }} />
       )}
-
       {editingUser && (
-        <EditUserModal
-          user={editingUser}
-          onClose={() => setEditingUser(null)}
-          onUpdated={() => { setEditingUser(null); fetchUsers(); }}
-        />
+        <EditUserModal user={editingUser} onClose={() => setEditingUser(null)} onUpdated={() => { setEditingUser(null); fetchUsers(); }} />
       )}
-
       {confirm && (
         <ConfirmDialog
           title={confirm.title}

@@ -1,5 +1,5 @@
 // file: frontend/src/hooks/useMeetings.js
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 export function useMeetings(filters = {}) {
@@ -7,9 +7,15 @@ export function useMeetings(filters = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [totalCount, setTotalCount] = useState(0);
+  const hasFetchedOnce = useRef(false);
 
   const fetchMeetings = useCallback(async () => {
-    setLoading(true);
+    // Only show loading spinner on initial load, not on background refetches (realtime).
+    // This prevents the table from flickering (disappear → spinner → reappear).
+    if (!hasFetchedOnce.current) {
+      setLoading(true);
+    }
+    setError(null);
     try {
       let query = supabase
         .from('meetings')
@@ -48,6 +54,7 @@ export function useMeetings(filters = {}) {
 
       setMeetings(data || []);
       setTotalCount(count || 0);
+      hasFetchedOnce.current = true;
     } catch (err) {
       setError(err.message);
     } finally {
@@ -55,7 +62,9 @@ export function useMeetings(filters = {}) {
     }
   }, [filters.userId, filters.status, filters.category, filters.dateFrom, filters.dateTo, filters.search, filters.page, filters.pageSize]);
 
+  // Reset hasFetchedOnce when filters change so filter changes show the spinner
   useEffect(() => {
+    hasFetchedOnce.current = false;
     fetchMeetings();
   }, [fetchMeetings]);
 
@@ -84,7 +93,6 @@ export function useTranscriptSearch(orgId, query) {
       p_org_id: orgId,
       p_query: query.trim(),
       p_limit: 20,
-      p_offset: 0,
     }).then(({ data, error: rpcError }) => {
       if (cancelled) return;
       if (rpcError) {
@@ -119,15 +127,14 @@ export function useMeetingDetail(meetingId) {
     try {
       const [meetingRes, transcriptRes, summaryRes, alertsRes] = await Promise.all([
         supabase.from('meetings').select('*, profiles!inner(full_name, email, microsoft_email, department)').eq('id', meetingId).single(),
-        supabase.from('transcripts').select('*').eq('meeting_id', meetingId).single(),
-        supabase.from('summaries').select('*').eq('meeting_id', meetingId).eq('is_default', true).single(),
+        supabase.from('transcripts').select('*').eq('meeting_id', meetingId).maybeSingle(),
+        supabase.from('summaries').select('*').eq('meeting_id', meetingId).eq('is_default', true).maybeSingle(),
         supabase.from('tone_alerts').select('*').eq('meeting_id', meetingId).order('start_time', { ascending: true }),
       ]);
 
       if (meetingRes.error) throw meetingRes.error;
-      // Transcript/summary errors that are not "row not found" (PGRST116) should surface
-      if (transcriptRes.error && transcriptRes.error.code !== 'PGRST116') throw transcriptRes.error;
-      if (summaryRes.error && summaryRes.error.code !== 'PGRST116') throw summaryRes.error;
+      if (transcriptRes.error) throw transcriptRes.error;
+      if (summaryRes.error) throw summaryRes.error;
       if (alertsRes.error) throw alertsRes.error;
 
       setMeeting(meetingRes.data);
@@ -160,14 +167,21 @@ export function useMeetingDetail(meetingId) {
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'transcripts',
         filter: `meeting_id=eq.${meetingId}`,
-      }, (payload) => {
-        setTranscript(payload.new);
+      }, async () => {
+        // Refetch full transcript from DB instead of using payload.new.
+        // Realtime payloads have a ~1MB size limit — transcript_json often exceeds this,
+        // causing payload.new.transcript_json to arrive as null/truncated.
+        const { data } = await supabase.from('transcripts').select('*').eq('meeting_id', meetingId).maybeSingle();
+        if (data) setTranscript(data);
       })
       .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'summaries',
+        event: '*', schema: 'public', table: 'summaries',
         filter: `meeting_id=eq.${meetingId}`,
-      }, (payload) => {
-        if (payload.new.is_default) setSummary(payload.new);
+      }, async () => {
+        // Refetch summary from DB — same payload size concern as transcripts,
+        // and also catches UPDATEs (not just INSERTs) from reprocessing.
+        const { data } = await supabase.from('summaries').select('*').eq('meeting_id', meetingId).eq('is_default', true).maybeSingle();
+        if (data) setSummary(data);
       })
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'tone_alerts',

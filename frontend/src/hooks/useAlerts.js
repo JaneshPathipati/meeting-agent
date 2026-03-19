@@ -1,5 +1,5 @@
 // file: frontend/src/hooks/useAlerts.js
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 export function useAlerts(filters = {}) {
@@ -7,9 +7,13 @@ export function useAlerts(filters = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [totalCount, setTotalCount] = useState(0);
+  const hasFetchedOnce = useRef(false);
 
   const fetchAlerts = useCallback(async () => {
-    setLoading(true);
+    if (!hasFetchedOnce.current) {
+      setLoading(true);
+    }
+    setError(null);
     try {
       let query = supabase
         .from('tone_alerts')
@@ -36,6 +40,7 @@ export function useAlerts(filters = {}) {
 
       setAlerts(data || []);
       setTotalCount(count || 0);
+      hasFetchedOnce.current = true;
     } catch (err) {
       setError(err.message);
     } finally {
@@ -44,6 +49,7 @@ export function useAlerts(filters = {}) {
   }, [filters.severity, filters.isReviewed, filters.meetingId, filters.page, filters.pageSize]);
 
   useEffect(() => {
+    hasFetchedOnce.current = false;
     fetchAlerts();
   }, [fetchAlerts]);
 
@@ -182,7 +188,8 @@ export function useMeetingsLog() {
         // Fetch alert counts per meeting
         const { data: alertCounts } = await supabase
           .from('tone_alerts')
-          .select('meeting_id');
+          .select('meeting_id')
+          .limit(5000);
 
         const countMap = {};
         (alertCounts || []).forEach(a => {

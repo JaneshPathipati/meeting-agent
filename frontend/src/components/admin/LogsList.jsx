@@ -38,7 +38,7 @@ export default function LogsList() {
       const { data } = await supabase
         .from('profiles')
         .select('id, full_name')
-        .eq('is_admin', false)
+        .neq('role', 'admin')
         .order('full_name');
       setProfiles(data || []);
     }

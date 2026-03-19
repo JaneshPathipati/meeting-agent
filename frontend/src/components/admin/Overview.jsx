@@ -41,35 +41,33 @@ function StatCard({ icon: Icon, label, value, accent, delay }) {
   return (
     <div
       className="glass-card animate-slide-up"
-      style={{ animationDelay: `${delay}ms` }}
+      style={{ animationDelay: `${delay}ms`, borderRadius: '20px' }}
     >
       <div className="p-5">
-        {/* Icon strip */}
-        <div
-          className="h-8 w-8 flex items-center justify-center mb-4"
-          style={{ background: accent + '18', border: `1px solid ${accent}30` }}
+        {/* Pill tag */}
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full mb-3"
+          style={{ background: accent + '18', color: accent }}
         >
-          <Icon className="h-4 w-4" style={{ color: accent }} />
-        </div>
+          <Icon className="h-3 w-3" />
+          {label}
+        </span>
 
         {/* Value */}
         <p
-          className="text-[32px] font-semibold tracking-tight leading-none animate-count-up"
+          className="text-[32px] font-semibold tracking-tight leading-none animate-count-up font-display"
           style={{ color: '#020617', animationDelay: `${delay + 100}ms` }}
         >
           {count}
         </p>
 
-        {/* Label */}
-        <p className="mt-1.5 text-[12px] uppercase tracking-[0.2em] text-[#64748B]">
-          {label}
-        </p>
-
-        {/* Bottom accent bar */}
+        {/* Icon strip */}
         <div
-          className="mt-4 h-[2px] w-8 transition-all duration-300 group-hover:w-full"
-          style={{ background: accent }}
-        />
+          className="mt-3 h-8 w-8 flex items-center justify-center rounded-xl"
+          style={{ background: accent + '12', border: `1px solid ${accent}20` }}
+        >
+          <Icon className="h-4 w-4" style={{ color: accent }} />
+        </div>
       </div>
     </div>
   );

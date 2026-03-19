@@ -1,4 +1,4 @@
-# MeetChamp
+# Scriptor
 
 A production-grade meeting transcription and analysis system.
 
@@ -7,13 +7,13 @@ A production-grade meeting transcription and analysis system.
 | Component | Description |
 |---|---|
 | **client-agent/** | Electron desktop app (Windows) — silent meeting detection, audio capture, local transcription, upload |
-| **backend/** | Supabase PostgreSQL schema, RLS policies, functions, triggers, cron jobs |
+| **supabase/** | Consolidated database schema reference (PostgreSQL, RLS, functions, triggers, cron) |
 | **frontend/** | React admin-only dashboard (Vite + Tailwind + shadcn/ui) |
 | **docs/** | Setup guides, architecture docs, admin guide |
 
 ## Quick Start
 
-1. Set up Supabase project and run SQL files from `backend/`
+1. Set up Supabase project — see `supabase/schema-complete.sql` for full schema reference
 2. Configure `.env` files in `client-agent/` and `frontend/`
 3. Install dependencies: `npm install` in both `client-agent/` and `frontend/`
 4. See `docs/SETUP.md` for detailed instructions

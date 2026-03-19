@@ -10,12 +10,12 @@ import TranscriptViewer from './TranscriptViewer';
 import SummaryPanel from './SummaryPanel';
 import ToneAlerts from './ToneAlerts';
 
-const statusColors = {
-  uploaded: 'bg-blue-100 text-blue-700',
-  processing: 'bg-yellow-100 text-yellow-700',
-  processed: 'bg-green-100 text-green-700',
-  failed: 'bg-red-100 text-red-700',
-  awaiting_teams_transcript: 'bg-indigo-100 text-indigo-700',
+const statusConfig = {
+  uploaded:                  { label: 'Uploaded',              bg: '#FFF7ED', color: '#EA580C', border: '#FED7AA' },
+  processing:                { label: 'Processing',            bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
+  processed:                 { label: 'Processed',             bg: '#F0FDF4', color: '#16A34A', border: '#BBF7D0' },
+  failed:                    { label: 'Failed',                bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
+  awaiting_teams_transcript: { label: 'Awaiting Transcript',   bg: '#EEF2FF', color: '#4F46E5', border: '#C7D2FE' },
 };
 
 const TEAMS_ATTEMPT_LABELS = {
@@ -32,13 +32,19 @@ function getStatusLabel(meeting) {
     const attempt = meeting.teams_transcript_attempt || 0;
     return TEAMS_ATTEMPT_LABELS[attempt] || TEAMS_ATTEMPT_LABELS[0];
   }
-  const labels = {
-    uploaded: 'Uploaded',
-    processing: 'Processing',
-    processed: 'Processed',
-    failed: 'Failed',
-  };
-  return labels[meeting.status] || meeting.status;
+  return statusConfig[meeting.status]?.label || meeting.status;
+}
+
+function MetaChip({ icon: Icon, children, color }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] text-[12px] font-medium"
+      style={{ background: '#F4F2EF', border: '1px solid rgba(226,232,240,0.8)', color: color || '#475569' }}
+    >
+      <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+      {children}
+    </span>
+  );
 }
 
 function MeetingDetail({ meetingId }) {
@@ -54,16 +60,13 @@ function MeetingDetail({ meetingId }) {
     // 1. Exact timestamp match
     let target = transcriptRef.current.querySelector(`[data-time="${startTime}"]`);
 
-    // 2. Text content match — find the segment containing the flagged quote
+    // 2. Text content match
     if (!target && flaggedText) {
       const lowerFlagged = flaggedText.toLowerCase();
       const allSegs = transcriptRef.current.querySelectorAll('[data-time]');
       for (const el of allSegs) {
         const text = el.textContent || '';
-        if (text.toLowerCase().includes(lowerFlagged)) {
-          target = el;
-          break;
-        }
+        if (text.toLowerCase().includes(lowerFlagged)) { target = el; break; }
       }
     }
 
@@ -74,89 +77,92 @@ function MeetingDetail({ meetingId }) {
         : parts.length === 2 ? parts[0] * 60 + parts[1] : NaN;
 
       if (!isNaN(alertSec)) {
-        let bestEl = null;
-        let bestDiff = Infinity;
+        let bestEl = null, bestDiff = Infinity;
         transcriptRef.current.querySelectorAll('[data-time]').forEach(el => {
           const ts = el.getAttribute('data-time');
           const p = ts.split(':').map(Number);
-          const sec = p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2]
-            : p.length === 2 ? p[0] * 60 + p[1] : NaN;
+          const sec = p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p.length === 2 ? p[0] * 60 + p[1] : NaN;
           const diff = Math.abs(sec - alertSec);
-          if (diff < bestDiff && diff <= 120) {
-            bestDiff = diff;
-            bestEl = el;
-          }
+          if (diff < bestDiff && diff <= 120) { bestDiff = diff; bestEl = el; }
         });
         target = bestEl;
       }
     }
 
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
 
   if (loading) return <LoadingSpinner size="lg" className="py-12" />;
   if (error) return <div className="text-red-500 py-8 text-center">{error}</div>;
-  if (!meeting) return <div className="text-gray-500 py-8 text-center">Meeting not found</div>;
+  if (!meeting) return <div className="text-[#94A3B8] py-8 text-center text-[13px]">Session not found</div>;
+
+  const sc = statusConfig[meeting.status] || statusConfig.uploaded;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start gap-4">
+    <div
+      className="space-y-6 animate-page-reveal"
+      style={{ fontFamily: 'Onest, ui-sans-serif, system-ui, sans-serif' }}
+    >
+      {/* ── Header ──────────────────────────────────────────────────── */}
+      <div className="flex items-start gap-4 animate-fade-in">
         <button
-          onClick={() => navigate('/meetings')}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 mt-0.5"
+          onClick={() => navigate('/sessions')}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-[12px] text-[13px] font-medium text-[#64748B] transition-all hover:bg-white hover:shadow-sm flex-shrink-0 mt-0.5"
+          style={{ border: '1.5px solid rgba(226,232,240,0.8)' }}
         >
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowLeft className="h-4 w-4" />
+          Back
         </button>
-        <div className="flex-1">
+
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-              {meeting.profiles?.full_name}'s Meeting
+            <h2
+              className="text-[26px] font-semibold tracking-tight text-[#020617] leading-tight font-display"
+              style={{ fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif' }}
+            >
+              {meeting.profiles?.full_name}'s Session
             </h2>
-            <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[meeting.status] || ''}`}>
+            <span
+              className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold"
+              style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.border}` }}
+            >
               {getStatusLabel(meeting)}
             </span>
           </div>
-          <div className="flex items-center gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
-            <span className="flex items-center gap-1">
-              <Clock className="h-4 w-4" />
-              {formatDateTime(meeting.start_time)} - {formatDurationLong(meeting.duration_seconds)}
-            </span>
-            <span className="flex items-center gap-1">
-              <Monitor className="h-4 w-4" />
-              {meeting.detected_app}
-            </span>
+
+          {/* Meta chips row */}
+          <div className="flex flex-wrap gap-2 mt-3">
+            <MetaChip icon={Clock}>
+              {formatDateTime(meeting.start_time)} · {formatDurationLong(meeting.duration_seconds)}
+            </MetaChip>
+            {meeting.detected_app && (
+              <MetaChip icon={Monitor}>{meeting.detected_app}</MetaChip>
+            )}
             {meeting.detected_category && (
-              <span className="flex items-center gap-1">
-                <Tag className="h-4 w-4" />
+              <MetaChip icon={Tag}>
                 {meeting.detected_category.replace(/_/g, ' ')}
-              </span>
+              </MetaChip>
             )}
             {meeting.email_sent_at ? (
-              <span className="flex items-center gap-1 text-green-600 dark:text-green-400" title={`Email sent ${new Date(meeting.email_sent_at).toLocaleString()}`}>
-                <Mail className="h-4 w-4" />
-                Email sent
-              </span>
+              <MetaChip icon={Mail} color="#16A34A">
+                Email sent {new Date(meeting.email_sent_at).toLocaleDateString()}
+              </MetaChip>
             ) : (
-              <span className="flex items-center gap-1 text-gray-400" title="Email not sent yet">
-                <MailX className="h-4 w-4" />
-                No email
-              </span>
+              <MetaChip icon={MailX} color="#94A3B8">No email sent</MetaChip>
             )}
           </div>
 
           {/* Attendees */}
           {meeting.attendees && meeting.attendees.length > 0 && (
             <div className="flex items-start gap-2 mt-3">
-              <Users className="h-4 w-4 text-gray-400 mt-0.5 flex-shrink-0" />
+              <Users className="h-3.5 w-3.5 text-[#94A3B8] mt-1 flex-shrink-0" />
               <div className="flex flex-wrap gap-1.5">
                 {meeting.attendees.map((a, i) => (
                   <span
                     key={i}
                     title={a.email}
-                    className="inline-flex px-2 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+                    className="inline-flex px-2.5 py-0.5 rounded-full text-[11px] font-medium text-[#475569]"
+                    style={{ background: '#F4F2EF', border: '1px solid rgba(226,232,240,0.8)' }}
                   >
                     {a.name || a.email}
                   </span>
@@ -167,24 +173,25 @@ function MeetingDetail({ meetingId }) {
         </div>
       </div>
 
-      {/* Live processing banner */}
+      {/* ── Live processing banner ──────────────────────────────────── */}
       {(meeting.status === 'uploaded' || meeting.status === 'processing') && (
-        <div className="flex items-center gap-2 px-4 py-2.5 bg-[#FFF3E8] border border-[#FFD4AA] text-sm text-[#92400E]">
-          <span className="relative flex h-2 w-2">
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-[14px] text-[13px] text-[#92400E] animate-fade-in"
+          style={{ background: '#FFF7ED', border: '1px solid #FED7AA' }}
+        >
+          <span className="relative flex h-2 w-2 flex-shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#F97316] opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-[#F97316]" />
           </span>
-          <span>
-            {meeting.status === 'processing'
-              ? 'AI is analyzing this meeting — transcript, summary, and tone alerts will appear automatically.'
-              : 'Meeting uploaded — AI processing will begin shortly.'}
-          </span>
+          {meeting.status === 'processing'
+            ? 'AI is analyzing this session — transcript, summary, and tone alerts will appear automatically.'
+            : 'Session uploaded — AI processing will begin shortly.'}
         </div>
       )}
 
-      {/* Three-panel layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
+      {/* ── Three-panel layout ───────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 space-y-5">
           <TranscriptViewer
             transcript={transcript}
             alerts={alerts}
@@ -201,7 +208,14 @@ function MeetingDetail({ meetingId }) {
           )}
         </div>
         <div>
-          <SummaryPanel summary={summary} category={meeting.detected_category} meetingStatus={meeting.status} errorMessage={meeting.error_message} meeting={meeting} onEmailSent={refetch} />
+          <SummaryPanel
+            summary={summary}
+            category={meeting.detected_category}
+            meetingStatus={meeting.status}
+            errorMessage={meeting.error_message}
+            meeting={meeting}
+            onEmailSent={refetch}
+          />
         </div>
       </div>
     </div>

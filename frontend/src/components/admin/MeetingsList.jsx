@@ -6,7 +6,7 @@ import { useRealtime } from '../../hooks/useRealtime';
 import { supabase } from '../../lib/supabase';
 import { formatDateShort } from '../../utils/formatDate';
 import { formatDuration } from '../../utils/formatDuration';
-import { Video, Filter, Mail, MailX, Search, X, Send, AlertCircle, Download } from 'lucide-react';
+import { Presentation, SlidersHorizontal, Mail, MailX, Search, X, Send, AlertCircle, Download } from 'lucide-react';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyState from '../shared/EmptyState';
 import Pagination from '../shared/Pagination';
@@ -32,82 +32,79 @@ const STATUSES = [
 
 const TEAMS_ATTEMPT_LABELS = {
   0: 'Awaiting Teams Transcript',
-  1: 'Fetching Teams Transcript (5 min)',
-  2: 'Fetching Teams Transcript (10 min)',
-  3: 'Fetching Teams Transcript (15 min)',
-  4: 'Fetching Teams Transcript (20 min)',
-  5: 'Teams Transcript Unavailable — Processing Local',
+  1: 'Fetching Teams (5 min)',
+  2: 'Fetching Teams (10 min)',
+  3: 'Fetching Teams (15 min)',
+  4: 'Fetching Teams (20 min)',
+  5: 'Processing Local',
 };
 
 function getStatusLabel(meeting) {
   if (meeting.status === 'awaiting_teams_transcript') {
-    const attempt = meeting.teams_transcript_attempt || 0;
-    return TEAMS_ATTEMPT_LABELS[attempt] || TEAMS_ATTEMPT_LABELS[0];
+    return TEAMS_ATTEMPT_LABELS[meeting.teams_transcript_attempt || 0] || TEAMS_ATTEMPT_LABELS[0];
   }
-  const labels = {
-    uploaded: 'Uploaded',
-    processing: 'Processing',
-    processed: 'Processed',
-    failed: 'Failed',
-  };
-  return labels[meeting.status] || meeting.status;
+  return { uploaded: 'Uploaded', processing: 'Processing', processed: 'Processed', failed: 'Failed' }[meeting.status] || meeting.status;
 }
 
-const categoryColors = {
-  client_conversation: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  consultant_meeting: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  target_company: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  sales_service: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  general: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+const categoryPills = {
+  client_conversation: { color: '#2563EB', bg: '#DBEAFE' },
+  consultant_meeting:  { color: '#7C3AED', bg: '#EDE9FE' },
+  internal_meeting:    { color: '#4F46E5', bg: '#EEF2FF' },
+  interview:           { color: '#0D9488', bg: '#CCFBF1' },
+  target_company:      { color: '#059669', bg: '#D1FAE5' },
+  sales_service:       { color: '#EA580C', bg: '#FFEDD5' },
+  general:             { color: '#64748B', bg: '#F1F5F9' },
 };
 
-const statusColors = {
-  uploaded: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  processing: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  processed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  awaiting_teams_transcript: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+const statusPills = {
+  uploaded:                  { color: '#2563EB', bg: '#DBEAFE' },
+  processing:                { color: '#D97706', bg: '#FEF3C7' },
+  processed:                 { color: '#059669', bg: '#D1FAE5' },
+  failed:                    { color: '#DC2626', bg: '#FEE2E2' },
+  awaiting_teams_transcript: { color: '#4F46E5', bg: '#EEF2FF' },
 };
+
+function Pill({ color, bg, children }) {
+  return (
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap"
+      style={{ color, background: bg }}>
+      {children}
+    </span>
+  );
+}
 
 function MeetingsList() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState({ page: 0, pageSize: 20 });
   const [searchInput, setSearchInput] = useState('');
-  const [emailConfirm, setEmailConfirm] = useState(null); // { id, userName, email }
+  const [emailConfirm, setEmailConfirm] = useState(null);
   const [sending, setSending] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [exporting, setExporting] = useState(false);
   const searchRef = useRef(null);
   const debounceRef = useRef(null);
+  const realtimeDebounceRef = useRef(null);
   const { meetings, loading, error, totalCount, refetch } = useMeetings(filters);
 
   const debouncedRefetch = useCallback(() => {
-    const t = setTimeout(() => refetch(), 800);
-    return () => clearTimeout(t);
+    if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current);
+    realtimeDebounceRef.current = setTimeout(() => refetch(), 800);
   }, [refetch]);
 
+  useEffect(() => () => { if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current); }, []);
   useRealtime('meetings', debouncedRefetch);
 
   const handleManualEmail = async () => {
     if (!emailConfirm) return;
-    setSending(true);
-    setEmailError('');
+    setSending(true); setEmailError('');
     try {
-      const { data, error } = await supabase.rpc('send_manual_email', {
-        p_meeting_id: emailConfirm.id,
-      });
+      const { data, error } = await supabase.rpc('send_manual_email', { p_meeting_id: emailConfirm.id });
       if (error) throw error;
-      if (data === false) {
-        setEmailError('Email could not be sent. Check that the user has an email address and a summary exists.');
-      } else {
-        setEmailConfirm(null);
-        refetch();
-      }
+      if (data === false) setEmailError('Email could not be sent. Check that the user has an email address and a summary exists.');
+      else { setEmailConfirm(null); refetch(); }
     } catch (err) {
       setEmailError('Failed to send email: ' + err.message);
-    } finally {
-      setSending(false);
-    }
+    } finally { setSending(false); }
   };
 
   const handleSearchChange = useCallback((value) => {
@@ -118,15 +115,7 @@ function MeetingsList() {
     }, 300);
   }, []);
 
-  useEffect(() => {
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, []);
-
-  const clearSearch = () => {
-    setSearchInput('');
-    setFilters(prev => ({ ...prev, search: undefined, page: 0 }));
-    searchRef.current?.focus();
-  };
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
   const handleExportCSV = async () => {
     setExporting(true);
@@ -140,15 +129,9 @@ function MeetingsList() {
       if (filters.status)   query = query.eq('status', filters.status);
       if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom);
       if (filters.dateTo)   query = query.lte('created_at', filters.dateTo + 'T23:59:59');
-      if (filters.search) {
-        query = query.or(
-          `profiles.full_name.ilike.%${filters.search}%,profiles.microsoft_email.ilike.%${filters.search}%`
-        );
-      }
-
+      if (filters.search)   query = query.or(`profiles.full_name.ilike.%${filters.search}%,profiles.microsoft_email.ilike.%${filters.search}%`);
       const { data } = await query;
       if (!data?.length) return;
-
       const headers = ['User', 'Email', 'Date', 'Duration (min)', 'App', 'Category', 'Status', 'Email Sent'];
       const rows = data.map(m => [
         m.profiles?.full_name || '',
@@ -160,189 +143,161 @@ function MeetingsList() {
         m.status || '',
         m.email_sent_at ? new Date(m.email_sent_at).toLocaleString() : 'No',
       ]);
-
-      const csv = [headers, ...rows]
-        .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-        .join('\n');
-
+      const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `meetings-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      a.href = url; a.download = `sessions-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Export failed:', err);
-    } finally {
-      setExporting(false);
-    }
+    } catch (err) { console.error('Export failed:', err); }
+    finally { setExporting(false); }
+  };
+
+  const selectClass = "px-3 py-2 rounded-[12px] text-[12px] text-[#475569] outline-none transition-all duration-150 cursor-pointer";
+  const selectStyle = {
+    background: 'rgba(255,255,255,0.85)',
+    border: '1px solid rgba(226,232,240,0.8)',
+    boxShadow: '0 1px 4px rgba(15,23,42,0.04)',
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Meetings</h2>
+    <div className="space-y-6 animate-page-reveal">
+
+      {/* ── Page header ─────────────────────────────────────────── */}
+      <div className="flex items-end justify-between animate-fade-in">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.34em] text-[#64748B]">Management</p>
+          <h2 className="mt-1 text-[28px] font-semibold tracking-tight text-[#020617] leading-tight">
+            Sessions
+          </h2>
+        </div>
         <button
           onClick={handleExportCSV}
           disabled={exporting || loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg text-gray-600 hover:border-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-all duration-150 disabled:opacity-50"
-          title="Export current view as CSV"
+          className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-semibold rounded-[12px] transition-all duration-150 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ background: 'rgba(255,255,255,0.9)', border: '1px solid rgba(226,232,240,0.9)', boxShadow: '0 2px 8px rgba(15,23,42,0.06)' }}
         >
-          <Download className={`h-4 w-4 ${exporting ? 'animate-bounce' : ''}`} />
-          <span>{exporting ? 'Exporting...' : 'Export CSV'}</span>
+          <Download className={`h-4 w-4 text-[#F97316] ${exporting ? 'animate-bounce' : ''}`} />
+          <span className="text-[#475569]">{exporting ? 'Exporting…' : 'Export CSV'}</span>
         </button>
       </div>
 
-      {/* Search bar */}
-      <div className="relative">
-        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-          <Search className="h-4.5 w-4.5 text-gray-400" />
-        </div>
+      {/* ── Search ──────────────────────────────────────────────── */}
+      <div className="relative animate-slide-up" style={{ animationDelay: '60ms' }}>
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#94A3B8] pointer-events-none" />
         <input
           ref={searchRef}
           type="text"
           value={searchInput}
           onChange={(e) => handleSearchChange(e.target.value)}
-          placeholder="Search by name or email..."
-          className="w-full pl-10 pr-10 py-2.5 border border-gray-200 rounded-xl text-sm bg-white shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500 dark:bg-gray-800 dark:border-gray-700 dark:text-white dark:placeholder-gray-500 dark:focus:ring-brand-400/40 dark:focus:border-brand-400"
+          placeholder="Search sessions by name or email…"
+          className="w-full pl-10 pr-10 py-2.5 rounded-[14px] text-[13px] text-[#020617] placeholder-[#94A3B8] outline-none transition-all duration-200"
+          style={{ background: 'rgba(255,255,255,0.85)', border: '1px solid rgba(226,232,240,0.8)', boxShadow: '0 2px 8px rgba(15,23,42,0.05)' }}
+          onFocus={e => e.currentTarget.style.borderColor = 'rgba(249,115,22,0.5)'}
+          onBlur={e => e.currentTarget.style.borderColor = 'rgba(226,232,240,0.8)'}
         />
         {searchInput && (
-          <button
-            onClick={clearSearch}
-            className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          >
+          <button onClick={() => { setSearchInput(''); setFilters(prev => ({ ...prev, search: undefined, page: 0 })); searchRef.current?.focus(); }}
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#475569]">
             <X className="h-4 w-4" />
           </button>
         )}
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <Filter className="h-4 w-4 text-gray-400" />
-        <select
+      {/* ── Filters ─────────────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-2 items-center animate-slide-up" style={{ animationDelay: '100ms' }}>
+        <div className="flex items-center gap-1.5 mr-1">
+          <SlidersHorizontal className="h-3.5 w-3.5 text-[#94A3B8]" />
+          <span className="text-[11px] uppercase tracking-[0.18em] text-[#94A3B8] font-semibold">Filter</span>
+        </div>
+        <select className={selectClass} style={selectStyle}
           value={filters.category || ''}
-          onChange={(e) => setFilters({ ...filters, category: e.target.value || undefined, page: 0 })}
-          className="px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-        >
+          onChange={(e) => setFilters({ ...filters, category: e.target.value || undefined, page: 0 })}>
           {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
-        <select
+        <select className={selectClass} style={selectStyle}
           value={filters.status || ''}
-          onChange={(e) => setFilters({ ...filters, status: e.target.value || undefined, page: 0 })}
-          className="px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-        >
+          onChange={(e) => setFilters({ ...filters, status: e.target.value || undefined, page: 0 })}>
           {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
-        <input
-          type="date"
+        <input type="date" className={selectClass} style={selectStyle}
           value={filters.dateFrom || ''}
-          onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value || undefined, page: 0 })}
-          className="px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          placeholder="From"
-        />
-        <input
-          type="date"
+          onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value || undefined, page: 0 })} />
+        <input type="date" className={selectClass} style={selectStyle}
           value={filters.dateTo || ''}
-          onChange={(e) => setFilters({ ...filters, dateTo: e.target.value || undefined, page: 0 })}
-          className="px-3 py-1.5 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          placeholder="To"
-        />
+          onChange={(e) => setFilters({ ...filters, dateTo: e.target.value || undefined, page: 0 })} />
       </div>
 
-      {loading && <LoadingSpinner size="sm" className="py-2" />}
+      {loading && meetings.length === 0 && <LoadingSpinner size="sm" className="py-2" />}
 
-      {!loading && error ? (
-        <EmptyState
-          icon={AlertCircle}
-          title="Failed to load meetings"
-          description={error.message || 'An unexpected error occurred. Please refresh the page.'}
-        />
+      {/* ── Table ───────────────────────────────────────────────── */}
+      {!loading && error && meetings.length === 0 ? (
+        <EmptyState icon={AlertCircle} title="Failed to load sessions" description={error} />
       ) : !loading && meetings.length === 0 ? (
         <EmptyState
-          icon={filters.search ? Search : Video}
-          title={filters.search ? 'No results found' : 'No meetings found'}
-          description={filters.search ? `No meetings match "${filters.search}"` : 'Meetings will appear here once agents start recording'}
+          icon={filters.search ? Search : Presentation}
+          title={filters.search ? 'No results found' : 'No sessions yet'}
+          description={filters.search ? `No sessions match "${filters.search}"` : 'Sessions appear here once agents start recording'}
         />
       ) : meetings.length > 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden">
+        <div className="glass-panel overflow-hidden animate-slide-up" style={{ animationDelay: '140ms' }}>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">User</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Date</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Duration</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">App</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Category</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Status</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Mail</th>
+                <tr style={{ background: '#F4F2EF', borderBottom: '1px solid rgba(226,232,240,0.6)' }}>
+                  {['Member', 'Date', 'Duration', 'App', 'Category', 'Status', 'Mail'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] font-semibold text-[#94A3B8]">{h}</th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y dark:divide-gray-700">
-                {meetings.map(meeting => (
-                  <tr
-                    key={meeting.id}
-                    onClick={() => navigate(`/meetings/${meeting.id}`)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer"
-                  >
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
-                      {meeting.profiles?.full_name}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                      {formatDateShort(meeting.start_time)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                      {formatDuration(meeting.duration_seconds)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                      {meeting.detected_app}
-                    </td>
-                    <td className="px-4 py-3">
-                      {meeting.detected_category && (
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${categoryColors[meeting.detected_category] || categoryColors.general}`}>
-                          {meeting.detected_category.replace(/_/g, ' ')}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[meeting.status] || ''}`}>
-                        {getStatusLabel(meeting)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {meeting.email_sent_at ? (
-                        <span className="inline-flex items-center gap-1 text-green-600 dark:text-green-400" title={`Sent ${new Date(meeting.email_sent_at).toLocaleString()}`}>
-                          <Mail className="h-4 w-4" />
-                          <span className="text-xs">Sent</span>
-                        </span>
-                      ) : meeting.status === 'processed' ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEmailConfirm({
-                              id: meeting.id,
-                              userName: meeting.profiles?.full_name || 'Unknown',
-                              email: meeting.profiles?.microsoft_email || meeting.profiles?.email || 'N/A',
-                            });
-                          }}
-                          className="inline-flex items-center gap-1 text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300 transition-colors"
-                          title="Click to send email manually"
-                        >
-                          <Mail className="h-4 w-4" />
-                          <span className="text-xs">Send</span>
-                        </button>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-gray-400 dark:text-gray-500" title="Email not sent">
-                          <MailX className="h-4 w-4" />
-                          <span className="text-xs">—</span>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+              <tbody>
+                {meetings.map((meeting, idx) => {
+                  const catPill = categoryPills[meeting.detected_category] || categoryPills.general;
+                  const stPill  = statusPills[meeting.status] || statusPills.uploaded;
+                  return (
+                    <tr
+                      key={meeting.id}
+                      onClick={() => navigate(`/meetings/${meeting.id}`)}
+                      className="cursor-pointer transition-colors hover:bg-[#FFF8F4]"
+                      style={{ borderBottom: idx < meetings.length - 1 ? '1px solid rgba(241,245,249,0.8)' : 'none' }}
+                    >
+                      <td className="px-4 py-3 font-semibold text-[#020617]">{meeting.profiles?.full_name}</td>
+                      <td className="px-4 py-3 text-[#475569]">{formatDateShort(meeting.start_time)}</td>
+                      <td className="px-4 py-3 text-[#475569]">{formatDuration(meeting.duration_seconds)}</td>
+                      <td className="px-4 py-3 text-[#475569]">{meeting.detected_app}</td>
+                      <td className="px-4 py-3">
+                        {meeting.detected_category && (
+                          <Pill color={catPill.color} bg={catPill.bg}>
+                            {meeting.detected_category.replace(/_/g, ' ')}
+                          </Pill>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Pill color={stPill.color} bg={stPill.bg}>{getStatusLabel(meeting)}</Pill>
+                      </td>
+                      <td className="px-4 py-3">
+                        {meeting.email_sent_at ? (
+                          <span className="flex items-center gap-1 text-[12px] font-medium" style={{ color: '#059669' }}
+                            title={`Sent ${new Date(meeting.email_sent_at).toLocaleString()}`}>
+                            <Mail className="h-3.5 w-3.5" />Sent
+                          </span>
+                        ) : meeting.status === 'processed' ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEmailConfirm({ id: meeting.id, userName: meeting.profiles?.full_name || 'Unknown', email: meeting.profiles?.microsoft_email || meeting.profiles?.email || 'N/A' }); }}
+                            className="flex items-center gap-1 text-[12px] font-medium text-[#F97316] hover:text-[#EA580C] transition-colors"
+                          >
+                            <Mail className="h-3.5 w-3.5" />Send
+                          </button>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[12px] text-[#CBD5E1]">
+                            <MailX className="h-3.5 w-3.5" />—
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -355,43 +310,40 @@ function MeetingsList() {
         </div>
       ) : null}
 
-      {/* Manual email confirmation dialog */}
+      {/* ── Manual email dialog ──────────────────────────────────── */}
       {emailConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl border dark:border-gray-700 p-6 max-w-md w-full mx-4">
+          <div className="bg-white rounded-[20px] shadow-2xl p-6 max-w-md w-full mx-4" style={{ boxShadow: '0 8px 40px rgba(15,23,42,0.18)' }}>
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 rounded-full bg-orange-100 dark:bg-orange-900/30">
-                <Send className="h-5 w-5 text-orange-500" />
+              <div className="p-2 rounded-full" style={{ background: '#FFEDD5' }}>
+                <Send className="h-5 w-5 text-[#F97316]" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Send Email Manually</h3>
+              <h3 className="text-[16px] font-semibold text-[#020617]">Send Email Manually</h3>
             </div>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              This will send the meeting summary email to:
-            </p>
-            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 mb-5 text-sm">
-              <p className="font-medium text-gray-900 dark:text-white">{emailConfirm.userName}</p>
-              <p className="text-gray-500 dark:text-gray-400">{emailConfirm.email}</p>
+            <p className="text-[13px] text-[#475569] mb-4">This will send the meeting summary email to:</p>
+            <div className="rounded-[14px] p-3 mb-4 text-[13px]" style={{ background: '#F4F2EF' }}>
+              <p className="font-semibold text-[#020617]">{emailConfirm.userName}</p>
+              <p className="text-[#64748B]">{emailConfirm.email}</p>
             </div>
-            <p className="text-xs text-orange-600 dark:text-orange-400 mb-5">
-              This action bypasses the organization email toggle and will send the email regardless of settings.
+            <p className="text-[12px] text-[#F97316] mb-5">
+              This bypasses the org email toggle and sends regardless of settings.
             </p>
-            {emailError && (
-              <p className="text-xs text-red-600 dark:text-red-400 mb-4">{emailError}</p>
-            )}
+            {emailError && <p className="text-[12px] text-red-600 mb-4">{emailError}</p>}
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => { setEmailConfirm(null); setEmailError(''); }}
                 disabled={sending}
-                className="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                className="px-4 py-2 text-[13px] text-[#475569] hover:bg-[#F4F2EF] rounded-xl transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleManualEmail}
                 disabled={sending}
-                className="px-4 py-2 text-sm rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-medium transition-colors disabled:opacity-50"
+                className="px-4 py-2 text-[13px] font-semibold text-white rounded-xl transition-colors disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #F97316 0%, #DC4F04 100%)' }}
               >
-                {sending ? 'Sending...' : 'Send Email'}
+                {sending ? 'Sending…' : 'Send Email'}
               </button>
             </div>
           </div>

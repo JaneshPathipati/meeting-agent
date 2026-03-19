@@ -15,7 +15,7 @@ function HighlightedText({ text, query }) {
   return (
     <span>
       {parts.map((part, i) =>
-        regex.test(part) ? (
+        part.toLowerCase() === query.toLowerCase() ? (
           <mark key={i} className="bg-[#FFF3E8] text-[#EA580C] font-semibold px-0.5 not-italic">
             {part}
           </mark>

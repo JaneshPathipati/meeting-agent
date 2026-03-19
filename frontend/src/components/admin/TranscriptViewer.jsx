@@ -4,31 +4,23 @@ import { FileText, Cpu, Cloud, ChevronDown, ChevronUp } from 'lucide-react';
 import EmptyState from '../shared/EmptyState';
 
 const highlightStyles = {
-  high: 'bg-red-200/60 dark:bg-red-900/40 border-b-2 border-red-400 rounded-sm px-0.5',
-  medium: 'bg-orange-200/60 dark:bg-orange-900/40 border-b-2 border-orange-400 rounded-sm px-0.5',
-  low: 'bg-yellow-200/60 dark:bg-yellow-900/40 border-b-2 border-yellow-400 rounded-sm px-0.5',
+  high:   'bg-red-100/80 border-b-2 border-red-400 rounded-sm px-0.5',
+  medium: 'bg-orange-100/80 border-b-2 border-orange-400 rounded-sm px-0.5',
+  low:    'bg-yellow-100/80 border-b-2 border-yellow-400 rounded-sm px-0.5',
 };
 
 function renderHighlightedText(text, segmentAlerts) {
   if (!segmentAlerts || segmentAlerts.length === 0) return text;
 
-  // Find all match positions
   const matches = [];
   segmentAlerts.forEach(alert => {
     if (!alert.flagged_text) return;
     const lowerText = text.toLowerCase();
     const lowerFlagged = alert.flagged_text.toLowerCase();
     const idx = lowerText.indexOf(lowerFlagged);
-    if (idx !== -1) {
-      matches.push({
-        start: idx,
-        end: idx + alert.flagged_text.length,
-        severity: alert.severity,
-      });
-    }
+    if (idx !== -1) matches.push({ start: idx, end: idx + alert.flagged_text.length, severity: alert.severity });
   });
 
-  // If no exact matches found, highlight the entire segment subtly
   if (matches.length === 0) {
     const highestSeverity = segmentAlerts.reduce((h, a) => {
       const order = { high: 3, medium: 2, low: 1 };
@@ -37,32 +29,20 @@ function renderHighlightedText(text, segmentAlerts) {
     return <mark className={highlightStyles[highestSeverity]}>{text}</mark>;
   }
 
-  // Sort by start position and remove overlaps (keep higher severity)
   matches.sort((a, b) => a.start - b.start);
   const merged = [];
   for (const m of matches) {
-    if (merged.length === 0 || m.start >= merged[merged.length - 1].end) {
-      merged.push({ ...m });
-    }
+    if (merged.length === 0 || m.start >= merged[merged.length - 1].end) merged.push({ ...m });
   }
 
-  // Build the result fragments
   const parts = [];
   let lastIdx = 0;
   merged.forEach((m, i) => {
-    if (m.start > lastIdx) {
-      parts.push(<span key={`t-${i}`}>{text.slice(lastIdx, m.start)}</span>);
-    }
-    parts.push(
-      <mark key={`h-${i}`} className={highlightStyles[m.severity] || highlightStyles.low}>
-        {text.slice(m.start, m.end)}
-      </mark>
-    );
+    if (m.start > lastIdx) parts.push(<span key={`t-${i}`}>{text.slice(lastIdx, m.start)}</span>);
+    parts.push(<mark key={`h-${i}`} className={highlightStyles[m.severity] || highlightStyles.low}>{text.slice(m.start, m.end)}</mark>);
     lastIdx = m.end;
   });
-  if (lastIdx < text.length) {
-    parts.push(<span key="tail">{text.slice(lastIdx)}</span>);
-  }
+  if (lastIdx < text.length) parts.push(<span key="tail">{text.slice(lastIdx)}</span>);
   return parts;
 }
 
@@ -96,35 +76,42 @@ function SpeakerBreakdown({ segments }) {
   const rest = stats.slice(2);
 
   return (
-    <div className="px-4 py-3 border-b dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/20">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] uppercase tracking-widest text-gray-400 font-medium">Speaker Breakdown</p>
+    <div
+      className="px-5 py-4"
+      style={{ background: '#F9F8F6', borderBottom: '1px solid rgba(226,232,240,0.8)' }}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[10px] uppercase tracking-[0.28em] font-semibold text-[#94A3B8]">Speaker Breakdown</p>
         {rest.length > 0 && (
           <button
             onClick={() => setExpanded(e => !e)}
-            className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            className="flex items-center gap-0.5 text-[10px] text-[#94A3B8] hover:text-[#64748B] transition-colors"
           >
             {expanded ? 'Less' : `+${rest.length} more`}
             {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           </button>
         )}
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {(expanded ? stats : topTwo).map((s, i) => (
-          <div key={s.name} className="flex items-center gap-2">
+          <div key={s.name} className="flex items-center gap-2.5">
             <span
               className="flex-shrink-0 h-2 w-2 rounded-full"
               style={{ background: SPEAKER_COLORS[i % SPEAKER_COLORS.length] }}
             />
-            <span className="text-xs text-gray-700 dark:text-gray-300 w-28 truncate font-medium">{s.name}</span>
-            <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+            <span className="text-[12px] text-[#475569] w-28 truncate font-medium">{s.name}</span>
+            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(226,232,240,0.8)' }}>
               <div
                 className="h-full rounded-full"
-                style={{ width: `${s.pct}%`, background: SPEAKER_COLORS[i % SPEAKER_COLORS.length], transition: 'width 0.6s cubic-bezier(0.22,1,0.36,1)' }}
+                style={{
+                  width: `${s.pct}%`,
+                  background: SPEAKER_COLORS[i % SPEAKER_COLORS.length],
+                  transition: 'width 0.6s cubic-bezier(0.22,1,0.36,1)',
+                }}
               />
             </div>
             <span className="text-[11px] font-semibold w-8 text-right" style={{ color: SPEAKER_COLORS[i % SPEAKER_COLORS.length] }}>{s.pct}%</span>
-            <span className="text-[10px] text-gray-400 w-16 text-right hidden sm:block">{s.words.toLocaleString()} words</span>
+            <span className="text-[10px] text-[#94A3B8] w-16 text-right hidden sm:block">{s.words.toLocaleString()} words</span>
           </div>
         ))}
       </div>
@@ -132,7 +119,6 @@ function SpeakerBreakdown({ segments }) {
   );
 }
 
-// Parse HH:MM:SS or MM:SS timestamp string to total seconds
 function parseTimestamp(ts) {
   if (!ts || typeof ts !== 'string') return NaN;
   const parts = ts.split(':').map(Number);
@@ -142,10 +128,6 @@ function parseTimestamp(ts) {
 }
 
 function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRef }) {
-  // Build alert lookup — maps segment start_time → alerts that belong to that segment.
-  // OpenAI tone analysis returns approximate timestamps that may not exactly match
-  // the transcript segment boundaries (e.g., alert says 00:05:56, segment is 00:04:56).
-  // Strategy: exact timestamp → text content match → fuzzy timestamp (nearest within 2 min).
   const alertsByTime = useMemo(() => {
     const map = new Map();
     if (!alerts.length) return map;
@@ -163,13 +145,10 @@ function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRe
         return;
       }
 
-      // 2. Text content match — find the segment containing the flagged quote.
-      //    Most reliable because the AI's flagged_text is verbatim from the transcript.
+      // 2. Text content match
       if (a.flagged_text) {
         const lowerFlagged = a.flagged_text.toLowerCase();
-        const textMatch = segments.find(s =>
-          s.text && s.text.toLowerCase().includes(lowerFlagged)
-        );
+        const textMatch = segments.find(s => s.text && s.text.toLowerCase().includes(lowerFlagged));
         if (textMatch) {
           const list = map.get(textMatch.start_time) || [];
           list.push(a);
@@ -178,19 +157,15 @@ function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRe
         }
       }
 
-      // 3. Fuzzy timestamp — nearest segment within 2 minutes
+      // 3. Fuzzy timestamp — nearest within 2 minutes
       const alertSec = parseTimestamp(a.start_time);
       if (!isNaN(alertSec)) {
-        let bestTs = null;
-        let bestDiff = Infinity;
+        let bestTs = null, bestDiff = Infinity;
         for (const s of segments) {
           const sec = parseTimestamp(s.start_time);
           if (isNaN(sec)) continue;
           const diff = Math.abs(sec - alertSec);
-          if (diff < bestDiff && diff <= 120) {
-            bestDiff = diff;
-            bestTs = s.start_time;
-          }
+          if (diff < bestDiff && diff <= 120) { bestDiff = diff; bestTs = s.start_time; }
         }
         if (bestTs) {
           const list = map.get(bestTs) || [];
@@ -202,15 +177,11 @@ function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRe
     return map;
   }, [alerts, transcript]);
 
-  // Auto-scroll to highlighted segment on mount/change
   useEffect(() => {
     if (highlightTime && transcriptRef?.current) {
-      // Small delay to let DOM render
       const timer = setTimeout(() => {
         const target = transcriptRef.current.querySelector(`[data-time="${highlightTime}"]`);
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }, 300);
       return () => clearTimeout(timer);
     }
@@ -218,7 +189,14 @@ function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRe
 
   if (!transcript) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-5">
+      <div
+        className="rounded-[20px] p-5"
+        style={{
+          background: 'rgba(255,255,255,0.92)',
+          border: '1px solid rgba(226,232,240,0.7)',
+          boxShadow: '0 4px 24px rgba(15,23,42,0.07)',
+        }}
+      >
         <EmptyState icon={FileText} title="No transcript" description="Transcript is not yet available" />
       </div>
     );
@@ -231,62 +209,89 @@ function TranscriptViewer({ transcript, alerts = [], highlightTime, transcriptRe
   const isTeams = transcript.source === 'teams' || metadataSource === 'teams';
   const isAssemblyAI = metadataSource === 'assemblyai';
   const sourceBadge = isTeams ? 'Teams' : isAssemblyAI ? 'AssemblyAI' : 'Local';
+
   const sourceBadgeStyle = isTeams
-    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+    ? { background: '#EEF2FF', color: '#4F46E5', border: '1px solid #C7D2FE' }
     : isAssemblyAI
-      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-      : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+      ? { background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0' }
+      : { background: '#F4F2EF', color: '#64748B', border: '1px solid rgba(226,232,240,0.8)' };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700">
-      <div className="flex items-center justify-between p-4 border-b dark:border-gray-700">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-          <FileText className="h-4 w-4" />
-          Transcript
-        </h3>
+    <div
+      className="rounded-[20px] overflow-hidden"
+      style={{
+        background: 'rgba(255,255,255,0.92)',
+        border: '1px solid rgba(226,232,240,0.7)',
+        boxShadow: '0 4px 24px rgba(15,23,42,0.07)',
+      }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-5 py-4"
+        style={{ borderBottom: '1px solid rgba(226,232,240,0.7)' }}
+      >
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.28em] font-semibold text-[#94A3B8] mb-0.5">Recording</p>
+          <h3
+            className="text-[16px] font-semibold text-[#020617] flex items-center gap-2"
+            style={{ fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif' }}
+          >
+            <FileText className="h-4 w-4 text-[#64748B]" />
+            Transcript
+          </h3>
+        </div>
         <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${sourceBadgeStyle}`}>
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold"
+            style={sourceBadgeStyle}
+          >
             {isTeams ? <Cloud className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
             {sourceBadge}
           </span>
           {transcript.word_count && (
-            <span className="text-xs text-gray-400">{transcript.word_count} words</span>
+            <span className="text-[11px] text-[#94A3B8] font-medium">{transcript.word_count.toLocaleString()} words</span>
           )}
         </div>
       </div>
 
       <SpeakerBreakdown segments={segments} />
 
-      <div ref={transcriptRef} className="p-4 max-h-[600px] overflow-y-auto space-y-3">
+      {/* Segments */}
+      <div ref={transcriptRef} className="p-5 max-h-[600px] overflow-y-auto space-y-1">
         {hasMalformedData && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-700/50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <div
+            className="rounded-[12px] px-4 py-3 text-[12px] mb-3"
+            style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E' }}
+          >
             Transcript data is malformed — local recording may have failed. Raw data is stored but cannot be displayed.
           </div>
         )}
         {segments.map((segment, idx) => {
           const segmentAlerts = alertsByTime.get(segment.start_time) || [];
           const isHighlighted = highlightTime && segment.start_time === highlightTime;
+          const hasAlert = segmentAlerts.length > 0;
 
           return (
             <div
               key={idx}
               data-time={segment.start_time}
-              className={`flex gap-3 rounded-lg px-2 py-1.5 transition-all duration-500 ${
+              className="flex gap-3 rounded-[12px] px-3 py-2 transition-all duration-300"
+              style={
                 isHighlighted
-                  ? 'ring-2 ring-brand-500 bg-brand-50/50 dark:bg-brand-900/20'
-                  : segmentAlerts.length > 0
-                    ? 'bg-gray-50/50 dark:bg-gray-700/20'
-                    : ''
-              }`}
+                  ? { background: '#FFF7ED', border: '1px solid #FED7AA' }
+                  : hasAlert
+                    ? { background: '#FFFBEB' }
+                    : {}
+              }
             >
-              <div className="flex-shrink-0 w-20 text-xs text-gray-400 dark:text-gray-500 pt-0.5 font-mono">
+              <div className="flex-shrink-0 w-16 text-[11px] text-[#94A3B8] pt-0.5 font-mono leading-relaxed">
                 {segment.start_time}
               </div>
-              <div className="flex-1">
-                <span className="text-xs font-medium text-brand-600 dark:text-brand-400">
+              <div className="flex-1 min-w-0">
+                <span className="text-[11px] font-semibold" style={{ color: '#F97316' }}>
                   {segment.speaker}
                 </span>
-                <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5 leading-relaxed">
+                <p className="text-[13px] text-[#374151] mt-0.5 leading-relaxed">
                   {renderHighlightedText(segment.text, segmentAlerts)}
                 </p>
               </div>

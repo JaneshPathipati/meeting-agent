@@ -1,9 +1,21 @@
 // file: frontend/src/components/shared/Navbar.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { LogOut, Menu, Bell, AlertTriangle, X } from 'lucide-react';
+import { LogOut, Menu, Bell, AlertTriangle, X, ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+
+const ROUTE_LABELS = {
+  '/':          'Dashboard',
+  '/live':      'Live Monitor',
+  '/alerts':    'Tone Alerts',
+  '/users':     'Users',
+  '/meetings':  'Meetings',
+  '/search':    'Search',
+  '/analytics': 'Analytics',
+  '/logs':      'Device Logs',
+  '/settings':  'Settings',
+};
 
 /* ── Alert severity colours ──────────────────────────────────────── */
 const SEV_COLORS = {
@@ -164,6 +176,8 @@ function NotificationBell() {
 /* ── Main Navbar ─────────────────────────────────────────────────── */
 function Navbar({ onToggleSidebar }) {
   const { profile, logout } = useAuth();
+  const location = useLocation();
+  const currentPage = ROUTE_LABELS[location.pathname] || 'Dashboard';
 
   return (
     <header className="rounded-2xl float-panel flex-shrink-0 h-14 flex items-center gap-4 px-5">
@@ -175,8 +189,12 @@ function Navbar({ onToggleSidebar }) {
         <Menu className="h-5 w-5 text-[#475569]" />
       </button>
 
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1.5 text-[13px] flex-1">
+        <span className="text-[#94A3B8] font-medium">Admin</span>
+        <ChevronRight className="h-3.5 w-3.5 text-[#CBD5E1]" />
+        <span className="font-semibold text-[#020617]">{currentPage}</span>
+      </div>
 
       {/* Right actions */}
       <div className="flex items-center gap-3">
