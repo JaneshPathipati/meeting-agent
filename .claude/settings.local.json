@@ -87,7 +87,14 @@
       "Bash(find C:/Users/pathi/Downloads/scriptor-agent/frontend/src -name *.js -o -name *.jsx -o -name *.tsx -o -name *.ts)",
       "Bash(npx vite:*)",
       "Bash(find /c/Users/pathi/Downloads/scriptor-agent/frontend/src -name *.css -type f)",
-      "mcp__claude_ai_Supabase__list_tables"
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "Bash(curl -s \"https://zbkpsxzbyylbwvnsbcgq.supabase.co/rest/v1/meetings?select=*&limit=1\" -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpia3BzeHpieXlsYnd2bnNiY2dxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzQ3NzE3OSwiZXhwIjoyMDg5MDUzMTc5fQ.4E_duUYTGaltM6UIhhWLe-8_bYCeI7GhPWr_eTxdHkI' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpia3BzeHpieXlsYnd2bnNiY2dxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzQ3NzE3OSwiZXhwIjoyMDg5MDUzMTc5fQ.4E_duUYTGaltM6UIhhWLe-8_bYCeI7GhPWr_eTxdHkI')",
+      "Read(//c/Users/pathi/Downloads/scriptor-agent/$APPDATA/supabase/**)",
+      "Read(//c/Users/pathi/Downloads/scriptor-agent/$HOME/.config/supabase/**)",
+      "Read(//c/Users/pathi/Downloads/scriptor-agent/$APPDATA/**)",
+      "Read(//c/Users/pathi/Downloads/scriptor-agent/**)",
+      "Bash(supabase link:*)"
     ]
   }
 }
