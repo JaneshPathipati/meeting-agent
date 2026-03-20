@@ -86,7 +86,7 @@ const TEAMS_MIC_STOP_DEBOUNCE_MS = 30000; // 30s debounce for Teams desktop mic 
 const LISTEN_ONLY_STOP_DEBOUNCE_MS = 30000; // 30s debounce for listen-only InACall-based end detection
 const LISTEN_ONLY_WEAK_STOP_DEBOUNCE_MS = 60000; // 60s debounce for listen-only InAMeeting-based end detection
 const PRESENCE_END_TICKS_REQUIRED = 5; // 5 consecutive non-call ticks (~25s) to confirm end — extra buffer for API blips
-const SUSTAINED_PRESENCE_TICKS = 3; // 3 consecutive ticks (~15s) for weak InAMeeting-only detection (Priority 4)
+const SUSTAINED_PRESENCE_TICKS = 10; // 10 consecutive ticks (~50s) for weak InAMeeting-only detection (Priority 4)
 const MIN_MEETING_DURATION_MS = 30000; // Skip meetings shorter than 30s (accidental joins)
 const MAX_RECORDING_MS = 4 * 60 * 60 * 1000; // 4 hours
 const SLEEP_GAP_THRESHOLD_MS = 30000; // 30s gap between ticks = likely wake from sleep/hibernate
@@ -318,6 +318,14 @@ const TEAMS_MEETING_TITLE_KEYWORDS = [
   'in a call', 'on a call', 'meeting in progress', 'is sharing', 'screen sharing',
 ];
 
+// Stricter keyword set used for meeting START detection (Priority 3 InAMeeting+title check).
+// Excludes 'meeting' because Teams channel/group names often contain that word, causing
+// false positives when Teams is open on a channels/chat view with no active call.
+const TEAMS_CALL_TITLE_KEYWORDS = [
+  'call with', 'meet app',
+  'in a call', 'on a call', 'meeting in progress', 'is sharing', 'screen sharing',
+];
+
 function getTeamsDesktopWindowTitles() {
   try {
     const appProcessNames = TEAMS_PROCESSES.map(p => p.replace('.exe', ''));
@@ -340,9 +348,20 @@ function teamsDesktopTitleHasMeetingKeywords() {
   });
 }
 
+// Stricter version for meeting START detection — uses TEAMS_CALL_TITLE_KEYWORDS which
+// excludes 'meeting' to avoid false positives from channel/group names.
+function teamsDesktopTitleHasCallKeywords() {
+  const titles = getTeamsDesktopWindowTitles();
+  return titles.some(title => {
+    const lower = title.toLowerCase();
+    return TEAMS_CALL_TITLE_KEYWORDS.some(kw => lower.includes(kw));
+  });
+}
+
 // Check if a Teams call is active by counting high UDP ephemeral endpoints.
 // Active Teams media sessions use many UDP ports > 49152 for SRTP/ICE.
-// >20 such endpoints reliably indicates an active call (idle systems have <5).
+// >50 such endpoints reliably indicates an active call (Teams desktop idle keeps ~10-30).
+// Raised threshold from 20→50 to avoid false positives when Teams is open but not in a call.
 // Cached for 10s to avoid running a heavyweight PowerShell every tick.
 let _lastUdpCheck = { time: 0, active: false };
 const UDP_CHECK_CACHE_MS = 10000;
@@ -356,7 +375,7 @@ function isTeamsCallActive() {
       { timeout: 3000, encoding: 'utf8', windowsHide: true }
     ).trim();
     const udpCount = parseInt(result, 10);
-    const active = !isNaN(udpCount) && udpCount > 20;
+    const active = !isNaN(udpCount) && udpCount > 50;
     _lastUdpCheck = { time: now, active };
     return active;
   } catch (err) {
@@ -431,10 +450,31 @@ async function detectMeetingSignals(processes, fgTitle, fgProcessName) {
     _lastPresenceResult = presence;
     const teamsApp = DESKTOP_APPS.find(a => a.isTeams);
 
-    // ── Signal 1: Teams desktop mic active = meeting (Presence-independent) ──
-    const micActive = isAppUsingMic(teamsApp.processes);
+    // ── Signal 1: Teams desktop mic active = meeting ──
+    // Use getMicActiveApps() directly so we can distinguish a definitive mic claim
+    // (Teams appears in the apps list) from a PowerShell failure fallback (apps: []).
+    // When the registry check fails, getMicActiveApps() returns { micActive: true, apps: [] }
+    // to avoid falsely ending an already-running meeting — but we must NOT use that
+    // error-fallback to START a new meeting, as it causes false positives when Teams
+    // is open with no call and the PowerShell script happens to fail.
+    const micInfo = getMicActiveApps();
+    const micDefinitivelyActive = micInfo.micActive && micInfo.apps.length > 0 &&
+      teamsApp.processes.some(proc => {
+        const procLower = proc.toLowerCase().replace('.exe', '');
+        return micInfo.apps.map(a => a.toLowerCase()).some(app =>
+          app.includes(procLower) || (procLower.includes('teams') && app.includes('teams'))
+        );
+      });
+
+    // If apps list is empty (PowerShell failed), only trust the mic signal if Presence
+    // also confirms the user is in a meeting — avoids false starts on registry errors.
+    const micActive = micDefinitivelyActive ||
+      (micInfo.micActive && micInfo.apps.length === 0 && presence && presence.inMeeting);
+
     if (micActive) {
       log.info('[Detector] Teams meeting detected via mic active', {
+        definitive: micDefinitivelyActive,
+        presenceBacked: !micDefinitivelyActive,
         activity: presence ? presence.activity : 'N/A',
         availability: presence ? presence.availability : 'N/A'
       });
@@ -563,8 +603,10 @@ async function detectMeetingSignals(processes, fgTitle, fgProcessName) {
         };
       }
 
-      // Priority 3: InAMeeting (calendar) + Teams desktop title has meeting keywords
-      if (teamsDesktopTitleHasMeetingKeywords()) {
+      // Priority 3: InAMeeting (calendar) + Teams desktop title has call-specific keywords
+      // Uses stricter keyword set (TEAMS_CALL_TITLE_KEYWORDS) to avoid matching channel/group
+      // names that contain 'meeting' when Teams is just open with no active call.
+      if (teamsDesktopTitleHasCallKeywords()) {
         const resolved = resolveListenOnlyApp(teamsApp, processes);
         log.info('[Detector] Listen-only Teams meeting detected via InAMeeting + title keywords', {
           activity: presence.activity, attributedTo: resolved.appName

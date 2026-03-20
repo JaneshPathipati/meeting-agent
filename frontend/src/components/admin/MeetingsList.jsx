@@ -6,7 +6,7 @@ import { useRealtime } from '../../hooks/useRealtime';
 import { supabase } from '../../lib/supabase';
 import { formatDateShort } from '../../utils/formatDate';
 import { formatDuration } from '../../utils/formatDuration';
-import { Presentation, SlidersHorizontal, Mail, MailX, Search, X, Send, AlertCircle, Download } from 'lucide-react';
+import { Presentation, SlidersHorizontal, Mail, MailX, Search, X, Send, AlertCircle, Download, Trash2 } from 'lucide-react';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import EmptyState from '../shared/EmptyState';
 import Pagination from '../shared/Pagination';
@@ -78,6 +78,9 @@ function MeetingsList() {
   const [emailConfirm, setEmailConfirm] = useState(null);
   const [sending, setSending] = useState(false);
   const [emailError, setEmailError] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [exporting, setExporting] = useState(false);
   const searchRef = useRef(null);
   const debounceRef = useRef(null);
@@ -103,6 +106,20 @@ function MeetingsList() {
     } catch (err) {
       setEmailError('Failed to send email: ' + err.message);
     } finally { setSending(false); }
+  };
+
+  const handleDeleteMeeting = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true); setDeleteError('');
+    try {
+      const { error } = await supabase.from('meetings').delete().eq('id', deleteConfirm.id);
+      if (error) throw error;
+      setDeleteConfirm(null);
+      refetch();
+    } catch (err) {
+      console.error('Failed to delete meeting:', err);
+      setDeleteError(err.message || 'Delete failed. You may not have permission.');
+    } finally { setDeleting(false); }
   };
 
   const handleSearchChange = useCallback((value) => {
@@ -244,7 +261,7 @@ function MeetingsList() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr style={{ background: '#F4F2EF', borderBottom: '1px solid rgba(226,232,240,0.6)' }}>
-                  {['Member', 'Date', 'Duration', 'App', 'Category', 'Status', 'Mail'].map(h => (
+                  {['Member', 'Date', 'Duration', 'App', 'Category', 'Status', 'Mail', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] font-semibold text-[#94A3B8]">{h}</th>
                   ))}
                 </tr>
@@ -293,6 +310,15 @@ function MeetingsList() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ id: meeting.id, userName: meeting.profiles?.full_name || 'Unknown' }); }}
+                          className="p-1.5 rounded-lg text-[#CBD5E1] hover:text-[#DC2626] hover:bg-[#FEE2E2] transition-colors"
+                          title="Delete session"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -307,6 +333,44 @@ function MeetingsList() {
           />
         </div>
       ) : null}
+
+      {/* ── Delete confirmation dialog ───────────────────────────── */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-[20px] shadow-2xl p-6 max-w-md w-full mx-4" style={{ boxShadow: '0 8px 40px rgba(15,23,42,0.18)' }}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-full" style={{ background: '#FEE2E2' }}>
+                <Trash2 className="h-5 w-5 text-[#DC2626]" />
+              </div>
+              <h3 className="text-[16px] font-semibold text-[#020617]">Delete Session</h3>
+            </div>
+            <p className="text-[13px] text-[#475569] mb-4">
+              Are you sure you want to delete the session for <span className="font-semibold text-[#020617]">{deleteConfirm.userName}</span>?
+            </p>
+            <p className="text-[12px] text-[#DC2626] mb-5">
+              This will permanently delete the session, transcript, and summary. This cannot be undone.
+            </p>
+            {deleteError && <p className="text-[12px] text-red-600 mb-4 p-2 bg-red-50 rounded-lg">{deleteError}</p>}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => { setDeleteConfirm(null); setDeleteError(''); }}
+                disabled={deleting}
+                className="px-4 py-2 text-[13px] text-[#475569] hover:bg-[#F4F2EF] rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteMeeting}
+                disabled={deleting}
+                className="px-4 py-2 text-[13px] font-semibold text-white rounded-xl transition-colors disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)' }}
+              >
+                {deleting ? 'Deleting…' : 'Delete Session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Manual email dialog ──────────────────────────────────── */}
       {emailConfirm && (

@@ -19,7 +19,7 @@
 //     6. Return transcript JSON
 //
 // Changes from previous architecture:
-//   - SLAM model as primary, universal-3-pro as fallback
+//   - universal-3-pro as primary, universal-2 as fallback
 //   - min_speakers_expected / max_speakers_expected instead of exact speakers_expected
 //   - known_values passed for speaker identification
 //   - Mic fingerprint transcription REMOVED (no longer needed with known_values)
@@ -142,13 +142,13 @@ async function requestTranscription(uploadUrl, apiKey, options = {}) {
     punctuate: true,
   };
 
-  // SLAM model as primary (45% improvement in key-term accuracy for names/org terms),
-  // universal-3-pro as fallback.
+  // universal-3-pro as primary, universal-2 as fallback.
   // Note: AssemblyAI now uses "speech_models" (plural array) instead of deprecated "speech_model".
+  // Valid values: "universal-3-pro", "universal-2" (slam-1 and "best" are not valid model names).
   if (useSlamModel) {
-    body.speech_models = ['slam-1'];
+    body.speech_models = ['universal-3-pro'];
   } else {
-    body.speech_models = ['best'];
+    body.speech_models = ['universal-2'];
   }
 
   if (options.multichannel) {
@@ -183,10 +183,10 @@ async function requestTranscription(uploadUrl, apiKey, options = {}) {
     log.info('[AssemblyAI] Transcription job created id=' + result.id + ' status=' + result.status);
     return result.id;
   } catch (err) {
-    // If SLAM model fails, retry with best (universal) model
+    // If universal-3-pro fails, retry with universal-2
     if (useSlamModel) {
-      log.warn('[AssemblyAI] SLAM model failed, retrying with best model', { error: err.message });
-      body.speech_models = ['best'];
+      log.warn('[AssemblyAI] universal-3-pro failed, retrying with universal-2', { error: err.message });
+      body.speech_models = ['universal-2'];
       const result = await apiRequest('POST', ASSEMBLYAI_TRANSCRIPT_URL, apiKey, body, false);
       log.info('[AssemblyAI] Transcription job created (fallback) id=' + result.id);
       return result.id;
@@ -403,7 +403,7 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
         segments: [],
         metadata: {
           source: 'assemblyai',
-          model: result.speech_model || result.speech_models?.[0] || 'slam-1',
+          model: result.speech_model || result.speech_models?.[0] || 'universal-3-pro',
           mode: usedMultichannel ? 'multichannel' : 'speaker_labels',
           speaker_count: 0,
           speakers: [],
@@ -494,14 +494,14 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
       confidence: `${(overallConfidence * 100).toFixed(1)}%`,
       lowConfidenceWords: lowConfidenceCount,
       mode: usedMultichannel ? 'multichannel' : 'speaker_labels',
-      model: result.speech_model || result.speech_models?.[0] || 'slam-1',
+      model: result.speech_model || result.speech_models?.[0] || 'universal-3-pro',
     });
 
     return {
       segments,
       metadata: {
         source: 'assemblyai',
-        model: result.speech_model || result.speech_models?.[0] || 'slam-1',
+        model: result.speech_model || result.speech_models?.[0] || 'universal-3-pro',
         mode: usedMultichannel ? 'multichannel' : 'speaker_labels',
         speaker_count: speakers.length,
         speakers,

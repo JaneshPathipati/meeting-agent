@@ -84,7 +84,7 @@ async function checkTeamsTranscript(meetingData, attempt) {
       const meetingChats = await graphClient
         .api('/me/chats')
         .filter("chatType eq 'meeting'")
-        .top(200)
+        .top(50)
         .select('id,topic,chatType,createdDateTime,lastUpdatedDateTime,onlineMeetingInfo')
         .get();
 
@@ -161,7 +161,7 @@ async function checkTeamsTranscript(meetingData, attempt) {
           endDateTime: searchEnd.toISOString()
         })
         .select('subject,start,end,onlineMeeting,isOnlineMeeting')
-        .top(200)
+        .top(50)
         .get();
 
       if (calendarEvents && calendarEvents.value) {
