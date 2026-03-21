@@ -390,15 +390,20 @@ async function performUpload(meetingData) {
 
   // If AI data was pre-generated, insert summary and tone alerts directly
   if (hasSummary) {
+    // Delete any existing default summary for this meeting first, then insert fresh.
+    // We cannot use upsert onConflict here because the unique constraint is a partial
+    // index (WHERE is_default = true), which PostgREST does not support as a conflict target.
+    await supabase.from('summaries').delete().eq('meeting_id', meetingId).eq('is_default', true);
+
     const { error: summaryError } = await supabase
       .from('summaries')
-      .upsert({
+      .insert({
         meeting_id:      meetingId,
         category:        aiData.category    || 'general',
         content:         aiData.summary,
         structured_json: aiData.structuredJson || null,
         is_default:      true,
-      }, { onConflict: 'meeting_id,is_default' });
+      });
 
     if (summaryError) {
       log.warn('[Uploader] Failed to insert pre-generated summary', {
@@ -427,9 +432,12 @@ async function performUpload(meetingData) {
         reason:       a.reason       || '',
       }));
 
+      // Delete existing alerts for this meeting then re-insert (avoids duplicate constraint issue).
+      await supabase.from('tone_alerts').delete().eq('meeting_id', meetingId);
+
       const { error: alertError } = await supabase
         .from('tone_alerts')
-        .upsert(alertRows, { onConflict: 'meeting_id,start_time,speaker', ignoreDuplicates: true });
+        .insert(alertRows);
 
       if (alertError) {
         log.warn('[Uploader] Failed to insert tone alerts', {
