@@ -395,17 +395,43 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
     // (Mic fingerprint transcription REMOVED — known_values replaces it)
     let result = await pollTranscription(transcriptId, apiKey);
 
-    // Step 3b: If we used multichannel but the remote channel (ch2) is completely silent,
-    // the system audio loopback was likely echo-cancelled by Chrome and contains no remote speech.
+    // Step 3b: If we used multichannel but the remote channel (ch2) is completely silent OR
+    // has very little content (< 25% of total), the system audio loopback either had echo
+    // cancellation applied or the WebRTC audio bypassed the WASAPI mixer.  In both cases
+    // the majority of the remote participant's voice leaked acoustically into the mic channel
+    // and will be wrongly labelled as the local user.
     // Fall back to speaker_labels on the mic audio alone — the mic picks up all voices
-    // (local + remote leaking through speakers), and diarization will separate them.
+    // (local + remote leaking through speakers), and diarization will separate them by voice.
     if (usedMultichannel && micValid) {
       const channelUtterances = result.utterances || [];
       const hasRemoteSpeech = channelUtterances.some(u => String(u.channel) !== '1');
       const hasAnyMicSpeech = channelUtterances.some(u => String(u.channel) === '1');
 
-      if (hasAnyMicSpeech && !hasRemoteSpeech) {
-        log.warn('[AssemblyAI] Multichannel: remote channel silent — system audio was echo-cancelled. Retrying with speaker_labels on mic.');
+      // Compute ratio of system-channel words vs total to detect partial bleed
+      const micChars = channelUtterances
+        .filter(u => String(u.channel) === '1')
+        .reduce((s, u) => s + (u.text || '').length, 0);
+      const sysChars = channelUtterances
+        .filter(u => String(u.channel) !== '1')
+        .reduce((s, u) => s + (u.text || '').length, 0);
+      const sysRatio = (micChars + sysChars) > 0 ? sysChars / (micChars + sysChars) : 0;
+      const remoteUtteranceCount = channelUtterances.filter(u => String(u.channel) !== '1').length;
+
+      // Trigger fallback when:
+      //   (a) remote channel is completely silent (echo-cancelled), OR
+      //   (b) remote channel is weak (< 25% of total chars) AND remote had ≥ 2 utterances
+      //       → an active remote speaker whose voice mostly leaked into the mic channel.
+      //       Threshold 25%: if sys captured ≥ 25% the multichannel split is reliable enough.
+      const remoteChannelSilent = hasAnyMicSpeech && !hasRemoteSpeech;
+      const remoteChannelWeak   = hasAnyMicSpeech && hasRemoteSpeech
+                                  && sysRatio < 0.25 && remoteUtteranceCount >= 2;
+
+      if (remoteChannelSilent || remoteChannelWeak) {
+        if (remoteChannelSilent) {
+          log.warn('[AssemblyAI] Multichannel: remote channel silent — system audio was echo-cancelled. Retrying with speaker_labels on mic.');
+        } else {
+          log.warn('[AssemblyAI] Multichannel: remote channel weak (' + Math.round(sysRatio * 100) + '% of content, ' + remoteUtteranceCount + ' utterances) — acoustic bleed into mic. Retrying with speaker_labels for better diarization.');
+        }
         const monoRetryPath = mixedPath + '.mono.wav';
         try {
           const { spawnSync } = require('child_process');
