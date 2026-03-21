@@ -20,7 +20,7 @@
 //
 // Changes from previous architecture:
 //   - universal-3-pro as primary, universal-2 as fallback
-//   - min_speakers_expected / max_speakers_expected instead of exact speakers_expected
+//   - speakers_expected (integer hint) instead of exact count
 //   - known_values passed for speaker identification
 //   - Mic fingerprint transcription REMOVED (no longer needed with known_values)
 'use strict';
@@ -126,10 +126,11 @@ async function uploadAudio(filePath, apiKey) {
  * @param {string}  uploadUrl   - AssemblyAI upload URL
  * @param {string}  apiKey      - API key
  * @param {object}  options
- * @param {boolean} options.multichannel           - Use multichannel mode (stereo input)
- * @param {number}  [options.minSpeakersExpected]  - Min speakers hint for mono diarization
- * @param {number}  [options.maxSpeakersExpected]  - Max speakers hint for mono diarization
- * @param {boolean} [options.useSlamModel]         - Try SLAM model first (default: true)
+ * @param {boolean} options.multichannel              - Use multichannel mode (stereo input)
+ * @param {number}  [options.minSpeakersExpected]     - Speaker count hint for mono diarization
+ *                                                      (AssemblyAI accepts a single integer; this
+ *                                                      is passed as speakers_expected)
+ * @param {boolean} [options.useSlamModel]            - Try universal-3-pro first (default: true)
  */
 async function requestTranscription(uploadUrl, apiKey, options = {}) {
   const mode = options.multichannel ? 'multichannel' : 'speaker_labels';
@@ -137,7 +138,10 @@ async function requestTranscription(uploadUrl, apiKey, options = {}) {
 
   const body = {
     audio_url: uploadUrl,
-    language_code: 'en',
+    // Do NOT set language_code — let AssemblyAI auto-detect.
+    // Forcing 'en' breaks meetings conducted in Hindi, Tamil, Telugu, or any
+    // other language. Universal-3-pro and universal-2 both support multilingual
+    // audio and produce accurate transcripts without a language hint.
     format_text: true,
     punctuate: true,
   };
@@ -570,6 +574,13 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
 
       // ── Strategy 1: Channel-2 reference word overlap ──────────────────────────
       // Requires ≥ 5 meaningful reference words from the system-audio channel.
+      // Guards against two failure modes:
+      //   (a) Zero overlap — no ch2 words appeared in the diarized result (the
+      //       diarization uses different word boundaries than multichannel, or the
+      //       ch2 words were all filtered as too short).  In this case the "remote"
+      //       pick would be arbitrary, so we fall through to confidence.
+      //   (b) Tied overlap — both speakers have the same word count.  A tie means we
+      //       cannot confidently determine which speaker is remote, so we fall through.
       if (ch2ReferenceWords.size >= 5) {
         const speakerOverlap = {};
         for (const sp of Object.keys(speakerDurations)) {
@@ -580,16 +591,24 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
           speakerOverlap[sp] = spWords.filter(w => ch2ReferenceWords.has(w)).length;
         }
         const sortedByOverlap = Object.entries(speakerOverlap).sort((a, b) => b[1] - a[1]);
-        const remoteSpeaker   = sortedByOverlap[0]?.[0];
-        const localCandidate  = sortedByOverlap.find(([sp]) => sp !== remoteSpeaker)?.[0];
+        const topOverlap    = sortedByOverlap[0]?.[1] ?? 0;
+        const secondOverlap = sortedByOverlap[1]?.[1] ?? 0;
+        const remoteSpeaker = sortedByOverlap[0]?.[0];
+        const localCandidate = sortedByOverlap.find(([sp]) => sp !== remoteSpeaker)?.[0];
 
-        if (remoteSpeaker && localCandidate) {
+        if (remoteSpeaker && localCandidate && topOverlap > 0 && topOverlap > secondOverlap) {
           localSpeakerLabel = localCandidate;
           log.info('[AssemblyAI] Local user via channel-2 reference overlap', {
             speaker: localSpeakerLabel,
             remoteSpeaker,
-            remoteOverlap: sortedByOverlap[0][1],
-            localOverlap:  sortedByOverlap[1]?.[1] ?? 0,
+            remoteOverlap: topOverlap,
+            localOverlap:  secondOverlap,
+            refWords: ch2ReferenceWords.size,
+          });
+        } else {
+          log.info('[AssemblyAI] Channel-2 overlap inconclusive (zero or tied), falling through to confidence', {
+            topOverlap,
+            secondOverlap,
             refWords: ch2ReferenceWords.size,
           });
         }
@@ -618,8 +637,20 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
         });
       }
 
-      let remoteCount = 0;
       const uniqueSpeakers = [...new Set(utterances.map(u => u.speaker))];
+
+      // Edge case: diarization returned only 1 speaker (everyone spoke in unison
+      // or the AI couldn't distinguish voices).  Treat the single speaker as the
+      // local user — it is safer to label all speech as "you" than to call it
+      // all "Remote Participant 1" which would be confusing and wrong.
+      if (uniqueSpeakers.length === 1 && !localSpeakerLabel) {
+        localSpeakerLabel = uniqueSpeakers[0];
+        log.info('[AssemblyAI] Single speaker in diarization result — labelling as local user', {
+          speaker: localSpeakerLabel,
+        });
+      }
+
+      let remoteCount = 0;
       for (const speaker of uniqueSpeakers) {
         if (speaker === localSpeakerLabel) {
           speakerMap[speaker] = speakerName;
@@ -678,10 +709,10 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
         low_confidence_words: lowConfidenceCount,
         mic_text_length: segments
           .filter(s => s.speaker === speakerName)
-          .reduce((n, s) => n + s.text.length, 0),
+          .reduce((n, s) => n + (s.text || '').length, 0),
         sys_text_length: segments
           .filter(s => s.speaker !== speakerName)
-          .reduce((n, s) => n + s.text.length, 0),
+          .reduce((n, s) => n + (s.text || '').length, 0),
         _assemblyai_id: transcriptId,
       },
     };
