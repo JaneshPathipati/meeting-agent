@@ -393,7 +393,51 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
 
     // Step 3: Poll until transcription is complete
     // (Mic fingerprint transcription REMOVED — known_values replaces it)
-    const result = await pollTranscription(transcriptId, apiKey);
+    let result = await pollTranscription(transcriptId, apiKey);
+
+    // Step 3b: If we used multichannel but the remote channel (ch2) is completely silent,
+    // the system audio loopback was likely echo-cancelled by Chrome and contains no remote speech.
+    // Fall back to speaker_labels on the mic audio alone — the mic picks up all voices
+    // (local + remote leaking through speakers), and diarization will separate them.
+    if (usedMultichannel && micValid) {
+      const channelUtterances = result.utterances || [];
+      const hasRemoteSpeech = channelUtterances.some(u => String(u.channel) !== '1');
+      const hasAnyMicSpeech = channelUtterances.some(u => String(u.channel) === '1');
+
+      if (hasAnyMicSpeech && !hasRemoteSpeech) {
+        log.warn('[AssemblyAI] Multichannel: remote channel silent — system audio was echo-cancelled. Retrying with speaker_labels on mic.');
+        const monoRetryPath = mixedPath + '.mono.wav';
+        try {
+          const { spawnSync } = require('child_process');
+          const monoArgs = [
+            '-y', '-i', micPath,
+            '-af', 'highpass=f=80,lowpass=f=8000',
+            '-ar', '16000', '-ac', '1',
+            monoRetryPath,
+          ];
+          spawnSync(getFfmpegPath(), monoArgs, { timeout: 120000, windowsHide: true });
+          const monoUrl = await uploadAudio(monoRetryPath, apiKey);
+          const monoId = await requestTranscription(monoUrl, apiKey, {
+            multichannel: false,
+            minSpeakersExpected: 2,
+            maxSpeakersExpected: Math.max(4, attendeeCount + 2),
+          });
+          const monoResult = await pollTranscription(monoId, apiKey);
+          if ((monoResult.utterances || []).length > 0) {
+            result = monoResult;
+            transcriptId = monoId;
+            usedMultichannel = false;
+            log.info('[AssemblyAI] speaker_labels retry succeeded', { utterances: monoResult.utterances.length });
+          } else {
+            log.warn('[AssemblyAI] speaker_labels retry also empty — keeping multichannel result');
+          }
+        } catch (retryErr) {
+          log.warn('[AssemblyAI] speaker_labels retry failed (non-critical)', { error: retryErr.message });
+        } finally {
+          try { if (fs.existsSync(monoRetryPath)) fs.unlinkSync(monoRetryPath); } catch (_) {}
+        }
+      }
+    }
 
     // Step 4: Process utterances
     const utterances = result.utterances || [];

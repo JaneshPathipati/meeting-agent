@@ -25,11 +25,21 @@ window.captureAPI.onStart(async (path, sourceId) => {
   let stream = null;
 
   // ── Path A: getDisplayMedia (Electron 26+ with setDisplayMediaRequestHandler) ──
-  // The main process handler responds with audio: 'loopback' automatically
+  // The main process handler responds with audio: 'loopback' automatically.
+  // Disable echo cancellation / noise suppression so that Chrome does NOT strip remote
+  // participants' voices from the loopback stream (they would otherwise be treated as
+  // "echo" of what's playing through the speakers and cancelled out).
   try {
     console.log('[SystemCapture] Trying getDisplayMedia...');
     stream = await withTimeout(
-      navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }),
+      navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      }),
       10000,
       'getDisplayMedia'
     );
@@ -87,6 +97,18 @@ window.captureAPI.onStart(async (path, sourceId) => {
     if (audioTracks.length === 0) {
       window.captureAPI.captureError('No audio tracks in capture stream');
       return;
+    }
+
+    // Force-disable echo processing on each track so remote voices are preserved.
+    // Chrome sometimes ignores constraints passed in getDisplayMedia and re-enables
+    // echo cancellation, so we apply them again here via applyConstraints.
+    for (const track of audioTracks) {
+      try {
+        await track.applyConstraints({ echoCancellation: false, noiseSuppression: false, autoGainControl: false });
+        console.log('[SystemCapture] Echo processing disabled on audio track');
+      } catch (e) {
+        console.warn('[SystemCapture] applyConstraints failed (non-critical): ' + e.message);
+      }
     }
 
     // Log audio track settings
