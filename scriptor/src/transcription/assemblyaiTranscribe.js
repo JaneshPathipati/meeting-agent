@@ -417,10 +417,16 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
           ];
           spawnSync(getFfmpegPath(), monoArgs, { timeout: 120000, windowsHide: true });
           const monoUrl = await uploadAudio(monoRetryPath, apiKey);
+          // In the echo-cancelled fallback the mic captured all voices together.
+          // Use attendeeCount if known; otherwise cap at 4 to avoid over-splitting
+          // when names are mentioned in speech (e.g. "Hey Janesh" doesn't mean there
+          // are more speakers — AssemblyAI uses acoustic patterns, not text mentions).
+          const minSpk = 2;
+          const maxSpk = attendeeCount > 0 ? Math.min(attendeeCount + 1, 6) : 4;
           const monoId = await requestTranscription(monoUrl, apiKey, {
             multichannel: false,
-            minSpeakersExpected: 2,
-            maxSpeakersExpected: Math.max(4, attendeeCount + 2),
+            minSpeakersExpected: minSpk,
+            maxSpeakersExpected: maxSpk,
           });
           const monoResult = await pollTranscription(monoId, apiKey);
           if ((monoResult.utterances || []).length > 0) {
@@ -476,21 +482,60 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
       log.info('[AssemblyAI] Multichannel speaker map:', speakerMap);
     } else {
       // ── MONO DIARIZATION SPEAKER MAPPING ─────────────────────────────────────
-      // With known_values, we no longer need mic fingerprinting.
-      // Use duration-based heuristic as initial mapping, then Speaker Identification
-      // (Layer 8 in the pipeline) will resolve names using known_values.
+      // Identify the local user by HIGHEST average word confidence.
+      // Direct mic capture (local user) produces higher-confidence transcription
+      // than remote voices leaking through speakers (lower volume, room acoustics).
+      // Duration-based identification is unreliable — if the local user speaks
+      // less than a remote participant, the longest speaker would be wrongly labeled
+      // as the local user.
+      const speakerConfSum  = {};
+      const speakerWordCnt  = {};
       const speakerDurations = {};
+
       for (const utt of utterances) {
         speakerDurations[utt.speaker] = (speakerDurations[utt.speaker] || 0) + (utt.end - utt.start) / 1000;
+        if (utt.words && utt.words.length > 0) {
+          for (const w of utt.words) {
+            speakerConfSum[utt.speaker] = (speakerConfSum[utt.speaker] || 0) + (w.confidence || 0);
+            speakerWordCnt[utt.speaker] = (speakerWordCnt[utt.speaker] || 0) + 1;
+          }
+        }
       }
-      const sorted = Object.entries(speakerDurations).sort((a, b) => b[1] - a[1]);
 
-      // Heuristic: longest-speaking participant is likely the local user
-      // (they have the clearest audio from the mic)
-      let localSpeakerLabel = sorted.length > 0 ? sorted[0][0] : null;
+      // Average word confidence per speaker
+      const speakerAvgConf = {};
+      for (const sp of Object.keys(speakerDurations)) {
+        speakerAvgConf[sp] = speakerWordCnt[sp] > 0
+          ? speakerConfSum[sp] / speakerWordCnt[sp]
+          : 0;
+      }
 
-      if (localSpeakerLabel) {
-        log.info('[AssemblyAI] Local user via duration heuristic', { speaker: localSpeakerLabel, durationSec: sorted[0][1].toFixed(1) });
+      const sortedByConf     = Object.entries(speakerAvgConf).sort((a, b) => b[1] - a[1]);
+      const sortedByDuration = Object.entries(speakerDurations).sort((a, b) => b[1] - a[1]);
+
+      let localSpeakerLabel = null;
+
+      // Primary: confidence gap ≥ 5% → clear winner is the local mic speaker
+      if (sortedByConf.length > 0 && sortedByConf[0][1] > 0) {
+        const topConf    = sortedByConf[0][1];
+        const secondConf = sortedByConf.length > 1 ? sortedByConf[1][1] : 0;
+        if (topConf - secondConf >= 0.05) {
+          localSpeakerLabel = sortedByConf[0][0];
+          log.info('[AssemblyAI] Local user via confidence heuristic', {
+            speaker: localSpeakerLabel,
+            avgConf: topConf.toFixed(3),
+            gap: (topConf - secondConf).toFixed(3),
+          });
+        }
+      }
+
+      // Fallback: confidence scores too similar (all voices equally clear) → use duration
+      if (!localSpeakerLabel && sortedByDuration.length > 0) {
+        localSpeakerLabel = sortedByDuration[0][0];
+        log.info('[AssemblyAI] Local user via duration fallback (confidence gap too small)', {
+          speaker: localSpeakerLabel,
+          durationSec: sortedByDuration[0][1].toFixed(1),
+        });
       }
 
       let remoteCount = 0;
