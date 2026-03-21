@@ -398,6 +398,12 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
     // and will be wrongly labelled as the local user.
     // Fall back to speaker_labels on the mic audio alone — the mic picks up all voices
     // (local + remote leaking through speakers), and diarization will separate them by voice.
+    // ch2ReferenceWords: unique significant words captured exclusively on the system-audio
+    // channel (channel 2) in the multichannel result.  These words come only from the remote
+    // participant's digital audio and are used after speaker-label diarization to identify
+    // which diarized speaker is the remote, without relying on confidence or duration heuristics.
+    let ch2ReferenceWords = new Set();
+
     if (usedMultichannel && micValid) {
       const channelUtterances = result.utterances || [];
       const hasRemoteSpeech = channelUtterances.some(u => String(u.channel) !== '1');
@@ -428,6 +434,20 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
         } else {
           log.warn('[AssemblyAI] Multichannel: remote channel weak (' + Math.round(sysRatio * 100) + '% of content, ' + remoteUtteranceCount + ' utterances) — acoustic bleed into mic. Retrying with speaker_labels for better diarization.');
         }
+
+        // Capture channel-2 words BEFORE overwriting result.
+        // These words are exclusively the remote participant's voice and will be used
+        // after diarization to reliably identify which speaker is the remote participant.
+        if (hasRemoteSpeech) {
+          const ch2Raw = channelUtterances
+            .filter(u => String(u.channel) !== '1')
+            .map(u => (u.text || '').toLowerCase())
+            .join(' ')
+            .replace(/[^a-z0-9\s]/g, ' ');
+          ch2ReferenceWords = new Set(ch2Raw.split(/\s+/).filter(w => w.length > 3));
+          log.info('[AssemblyAI] Channel-2 reference captured', { wordCount: ch2ReferenceWords.size });
+        }
+
         const monoRetryPath = mixedPath + '.mono.wav';
         try {
           const { spawnSync } = require('child_process');
@@ -504,12 +524,24 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
       log.info('[AssemblyAI] Multichannel speaker map:', speakerMap);
     } else {
       // ── MONO DIARIZATION SPEAKER MAPPING ─────────────────────────────────────
-      // Identify the local user by HIGHEST average word confidence.
-      // Direct mic capture (local user) produces higher-confidence transcription
-      // than remote voices leaking through speakers (lower volume, room acoustics).
-      // Duration-based identification is unreliable — if the local user speaks
-      // less than a remote participant, the longest speaker would be wrongly labeled
-      // as the local user.
+      // Three strategies in priority order to identify the local user:
+      //
+      // 1. CHANNEL-2 REFERENCE OVERLAP (most reliable, only available when falling
+      //    back from a weak multichannel result):
+      //    The system audio (channel 2) captures exclusively the remote participant's
+      //    digital voice.  Even a few words are enough to identify which diarized
+      //    speaker is the remote — the speaker with highest word overlap = remote,
+      //    the other = local user.  This is immune to confidence/duration bias.
+      //
+      // 2. CONFIDENCE GAP ≥ 5% (medium reliability):
+      //    Direct mic capture produces cleaner audio than room-leaked audio, so the
+      //    local user tends to have higher per-word confidence.  Only used when the
+      //    gap is large enough to be meaningful.
+      //
+      // 3. DURATION (last resort):
+      //    Least reliable (breaks when local user speaks less), used only when both
+      //    other strategies are inconclusive.
+
       const speakerConfSum  = {};
       const speakerWordCnt  = {};
       const speakerDurations = {};
@@ -524,7 +556,6 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
         }
       }
 
-      // Average word confidence per speaker
       const speakerAvgConf = {};
       for (const sp of Object.keys(speakerDurations)) {
         speakerAvgConf[sp] = speakerWordCnt[sp] > 0
@@ -537,8 +568,35 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
 
       let localSpeakerLabel = null;
 
-      // Primary: confidence gap ≥ 5% → clear winner is the local mic speaker
-      if (sortedByConf.length > 0 && sortedByConf[0][1] > 0) {
+      // ── Strategy 1: Channel-2 reference word overlap ──────────────────────────
+      // Requires ≥ 5 meaningful reference words from the system-audio channel.
+      if (ch2ReferenceWords.size >= 5) {
+        const speakerOverlap = {};
+        for (const sp of Object.keys(speakerDurations)) {
+          const spWords = utterances
+            .filter(u => u.speaker === sp)
+            .flatMap(u => (u.text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/))
+            .filter(w => w.length > 3);
+          speakerOverlap[sp] = spWords.filter(w => ch2ReferenceWords.has(w)).length;
+        }
+        const sortedByOverlap = Object.entries(speakerOverlap).sort((a, b) => b[1] - a[1]);
+        const remoteSpeaker   = sortedByOverlap[0]?.[0];
+        const localCandidate  = sortedByOverlap.find(([sp]) => sp !== remoteSpeaker)?.[0];
+
+        if (remoteSpeaker && localCandidate) {
+          localSpeakerLabel = localCandidate;
+          log.info('[AssemblyAI] Local user via channel-2 reference overlap', {
+            speaker: localSpeakerLabel,
+            remoteSpeaker,
+            remoteOverlap: sortedByOverlap[0][1],
+            localOverlap:  sortedByOverlap[1]?.[1] ?? 0,
+            refWords: ch2ReferenceWords.size,
+          });
+        }
+      }
+
+      // ── Strategy 2: Confidence gap ≥ 5% ──────────────────────────────────────
+      if (!localSpeakerLabel && sortedByConf.length > 0 && sortedByConf[0][1] > 0) {
         const topConf    = sortedByConf[0][1];
         const secondConf = sortedByConf.length > 1 ? sortedByConf[1][1] : 0;
         if (topConf - secondConf >= 0.05) {
@@ -551,7 +609,7 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
         }
       }
 
-      // Fallback: confidence scores too similar (all voices equally clear) → use duration
+      // ── Strategy 3: Duration (last resort) ────────────────────────────────────
       if (!localSpeakerLabel && sortedByDuration.length > 0) {
         localSpeakerLabel = sortedByDuration[0][0];
         log.info('[AssemblyAI] Local user via duration fallback (confidence gap too small)', {
