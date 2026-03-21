@@ -159,23 +159,19 @@ async function requestTranscription(uploadUrl, apiKey, options = {}) {
     // Mono diarization: AI distinguishes speakers by voice characteristics.
     body.speaker_labels = true;
 
-    // Use min/max range instead of exact speakers_expected for better accuracy.
-    // max = attendeeCount + 2 buffer for unannounced joiners
+    // Provide a speaker count hint to guide diarization.
+    // AssemblyAI supports speakers_expected as a single integer (not a min/max range).
+    // Use minSpeakersExpected as the hint — the model still auto-detects the real count;
+    // this is just a starting point (typically 2 for 1-on-1 calls).
     if (options.minSpeakersExpected) {
-      body.speakers_expected = undefined; // Explicitly unset exact count
-      body.speaker_labels_config = {
-        min_speakers: options.minSpeakersExpected,
-        max_speakers: options.maxSpeakersExpected || (options.minSpeakersExpected + 2),
-      };
+      body.speakers_expected = options.minSpeakersExpected;
     }
   }
 
   log.info('[AssemblyAI] Requesting transcription', {
     mode,
     model: body.speech_models?.[0],
-    speakerRange: body.speaker_labels_config
-      ? `${body.speaker_labels_config.min_speakers}-${body.speaker_labels_config.max_speakers}`
-      : 'auto',
+    speakerRange: body.speakers_expected ? String(body.speakers_expected) : 'auto',
   });
 
   try {
