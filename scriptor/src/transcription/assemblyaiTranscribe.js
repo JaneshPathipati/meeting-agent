@@ -49,6 +49,37 @@ function getFfmpegPath() {
   return path.join(__dirname, '..', '..', 'bin', 'ffmpeg.exe');
 }
 
+/**
+ * Measure the mean and max volume of an audio file using ffmpeg volumedetect.
+ * Returns { meanDb, maxDb } in dBFS (negative numbers; 0 = full scale).
+ * Returns { meanDb: -999, maxDb: -999 } on error.
+ *
+ * Use this to decide whether the system audio contains detectable speech or
+ * only ambient noise.  Typical values:
+ *   Silence / noise floor  : meanDb < -55
+ *   Quiet speech (far-field): meanDb -40 to -55
+ *   Normal speech           : meanDb -20 to -40
+ */
+function measureAudioEnergy(audioPath) {
+  try {
+    const { spawnSync } = require('child_process');
+    const r = spawnSync(getFfmpegPath(), [
+      '-i', audioPath,
+      '-af', 'volumedetect',
+      '-f', 'null', 'NUL',
+    ], { timeout: 30000, windowsHide: true });
+    const out = (r.stderr || '').toString();
+    const meanMatch = out.match(/mean_volume:\s*([-\d.]+)\s*dB/);
+    const maxMatch  = out.match(/max_volume:\s*([-\d.]+)\s*dB/);
+    return {
+      meanDb: meanMatch ? parseFloat(meanMatch[1]) : -999,
+      maxDb:  maxMatch  ? parseFloat(maxMatch[1])  : -999,
+    };
+  } catch (_) {
+    return { meanDb: -999, maxDb: -999 };
+  }
+}
+
 function formatTs(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -251,6 +282,10 @@ function mixAudioForUpload(micPath, sysPath, outputPath) {
     // Produce a 2-channel stereo WAV: left=mic (local user), right=system (remote).
     // Each channel is normalised to mono 16kHz independently before merging so
     // volume imbalances between WASAPI loopback and mic don't bleed across channels.
+    // The system (right) channel applies dynaudnorm (dynamic loudness normaliser) instead
+    // of a fixed volume boost.  dynaudnorm amplifies quiet sections up to 50× while
+    // keeping loud sections at their natural level, so faint remote-participant speech
+    // that barely registers in the WASAPI loopback is brought up to a detectable level.
     isStereo = true;
     args = [
       '-y',
@@ -258,7 +293,7 @@ function mixAudioForUpload(micPath, sysPath, outputPath) {
       '-i', sysPath,
       '-filter_complex',
       '[0:a]aresample=16000,aformat=channel_layouts=mono,highpass=f=80,lowpass=f=8000[left];' +
-      '[1:a]aresample=16000,aformat=channel_layouts=mono,highpass=f=80,lowpass=f=8000,volume=1.5[right];' +
+      '[1:a]aresample=16000,aformat=channel_layouts=mono,highpass=f=80,lowpass=f=8000,dynaudnorm=g=5:p=0.9:m=50[right];' +
       '[left][right]amerge=inputs=2[out]',
       '-map', '[out]',
       '-ar', '16000', '-ac', '2',
@@ -325,9 +360,30 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
   const basePath = micValid ? micPath : sysPath;
   const mixedPath = basePath + '.mixed.wav';
 
+  // Step 0: Measure system audio energy so we can decide whether to attempt
+  // multichannel mode.  When Google Meet (or any WebRTC app) renders remote audio
+  // through its own audio pipeline rather than the OS WASAPI mixer, the WASAPI
+  // loopback records only ambient room noise.  Running a full multichannel
+  // transcription in that case wastes ~30–45 s and always falls back anyway.
+  // Threshold: if system audio mean is below −55 dBFS it is at noise floor —
+  // skip multichannel and proceed directly to speaker_labels on the mic.
+  let sysIsNoise = false;
+  if (micValid && sysValid) {
+    const energy = measureAudioEnergy(sysPath);
+    log.info('[AssemblyAI] System audio energy', { meanDb: energy.meanDb, maxDb: energy.maxDb });
+    if (energy.meanDb < -55) {
+      sysIsNoise = true;
+      log.warn('[AssemblyAI] System audio is at noise floor (mean=' + energy.meanDb.toFixed(1) + ' dBFS) — Google Meet WebRTC audio did not go through WASAPI. Skipping multichannel, using speaker_labels on mic directly.');
+    }
+  }
+
   try {
-    // Step 1: Prepare audio
-    const { isStereo } = mixAudioForUpload(micPath, sysPath, mixedPath);
+    // Step 1: Prepare audio.
+    // If system audio is noise only, build a mic-only mono WAV directly so we
+    // skip the stereo mix and the multichannel API round-trip.
+    const { isStereo } = sysIsNoise
+      ? mixAudioForUpload(micPath, null, mixedPath)
+      : mixAudioForUpload(micPath, sysPath, mixedPath);
 
     // Guard against oversized files (AssemblyAI limit: 2 GB)
     const mixedSize = fs.statSync(mixedPath).size;
@@ -455,9 +511,14 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
         const monoRetryPath = mixedPath + '.mono.wav';
         try {
           const { spawnSync } = require('child_process');
+          // Apply dynaudnorm to normalise loudness across the mic channel.
+          // When the remote participant's voice leaks acoustically through the local
+          // speakers into the mic, it tends to be quieter than the local user's direct
+          // voice.  Normalising levels helps AssemblyAI's diarization model detect and
+          // correctly separate the second (quieter) speaker.
           const monoArgs = [
             '-y', '-i', micPath,
-            '-af', 'highpass=f=80,lowpass=f=8000',
+            '-af', 'highpass=f=80,lowpass=f=8000,dynaudnorm=g=5:p=0.9:m=30',
             '-ar', '16000', '-ac', '1',
             monoRetryPath,
           ];
@@ -697,25 +758,24 @@ async function transcribeWithAssemblyAI(micPath, sysPath, userName, enrichment =
       model: result.speech_model || result.speech_models?.[0] || 'universal-3-pro',
     });
 
-    return {
-      segments,
-      metadata: {
-        source: 'assemblyai',
-        model: result.speech_model || result.speech_models?.[0] || 'universal-3-pro',
-        mode: usedMultichannel ? 'multichannel' : 'speaker_labels',
-        speaker_count: speakers.length,
-        speakers,
-        confidence: overallConfidence,
-        low_confidence_words: lowConfidenceCount,
-        mic_text_length: segments
-          .filter(s => s.speaker === speakerName)
-          .reduce((n, s) => n + (s.text || '').length, 0),
-        sys_text_length: segments
-          .filter(s => s.speaker !== speakerName)
-          .reduce((n, s) => n + (s.text || '').length, 0),
-        _assemblyai_id: transcriptId,
-      },
+    const meta = {
+      source: 'assemblyai',
+      model: result.speech_model || result.speech_models?.[0] || 'universal-3-pro',
+      mode: usedMultichannel ? 'multichannel' : 'speaker_labels',
+      speaker_count: speakers.length,
+      speakers,
+      confidence: overallConfidence,
+      low_confidence_words: lowConfidenceCount,
+      mic_text_length: segments
+        .filter(s => s.speaker === speakerName)
+        .reduce((n, s) => n + (s.text || '').length, 0),
+      sys_text_length: segments
+        .filter(s => s.speaker !== speakerName)
+        .reduce((n, s) => n + (s.text || '').length, 0),
+      _assemblyai_id: transcriptId,
     };
+    if (sysIsNoise) meta.sys_skipped_noise_floor = true;
+    return { segments, metadata: meta };
   } finally {
     try { if (fs.existsSync(mixedPath)) fs.unlinkSync(mixedPath); } catch (_) {}
   }
