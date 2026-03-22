@@ -1,26 +1,51 @@
 ; installer.nsh — Custom NSIS installer/uninstaller macros
 ; Called by electron-builder during NSIS packaging
+;
+; UPGRADE SAFETY GUARANTEE:
+;   This macro runs on EVERY install (new install + upgrade).
+;   It ensures any previous version — including the old "Meetchamp" product —
+;   is fully stopped and cleaned up before new files are written.
+;   Users only need the single .exe; no separate clean-install script required.
 
 ; Runs after install completes (also runs during upgrades)
 !macro customInstall
-  ; Kill any running Scriptor processes before overwriting files (prevents file-in-use errors during upgrades)
-  nsExec::ExecToLog 'taskkill /f /im "Scriptor.exe" /t'
 
-  ; Kill any old "meetchamp" agent instance still running from a previous version
-  ; (old app used a different product name so its process won't match Scriptor.exe)
+  ; ── 1. Stop all running agent processes ─────────────────────────────────────
+  ; Kill current Scriptor before overwriting files (prevents file-in-use errors)
+  nsExec::ExecToLog 'taskkill /f /im "Scriptor.exe" /t'
+  ; Kill old "Meetchamp" agent from previous product versions
   nsExec::ExecToLog 'taskkill /f /im "meetchamp.exe" /t'
   nsExec::ExecToLog 'taskkill /f /im "Meetchamp.exe" /t'
+  ; Short wait so OS releases file handles before we overwrite them
+  Sleep 1500
 
-  ; Remove old-version watchdog scheduled tasks so they don't restart the old process
+  ; ── 2. Remove old-version watchdog scheduled tasks ───────────────────────────
+  ; Old watchdog tasks would restart the old process after we kill it.
   nsExec::ExecToLog 'schtasks /delete /tn "MeetchampWatchdog" /f'
   nsExec::ExecToLog 'schtasks /delete /tn "meetchampWatchdog" /f'
+  nsExec::ExecToLog 'schtasks /delete /tn "ScriptorWatchdog" /f'
 
-  ; Remove old auto-start registry entries left by previous installs
+  ; ── 3. Remove old auto-start registry entries ────────────────────────────────
+  ; Old Meetchamp auto-start keys — replaced by the Scriptor key below.
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "meetchamp"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Meetchamp"
 
-  ; Register app to auto-start with Windows (hidden, no splash)
+  ; ── 4. Remove old Meetchamp app-data (stale config/tokens from old product) ──
+  ; We intentionally keep %APPDATA%\Scriptor so existing users retain their
+  ; login session, API keys, and pending upload queue across upgrades.
+  ; Only the legacy Meetchamp directories are removed here.
+  RMDir /r "$APPDATA\meetchamp"
+  RMDir /r "$APPDATA\Meetchamp"
+  RMDir /r "$APPDATA\scriptor-agent"
+
+  ; ── 5. Clean up any stale temp audio files from the old product ──────────────
+  ; Scriptor writes to %TEMP%\scriptor — safe to wipe leftover .wav/.webm files.
+  ; The folder is recreated automatically on next recording start.
+  RMDir /r "$TEMP\scriptor"
+
+  ; ── 6. Register new version to auto-start with Windows ──────────────────────
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Scriptor" '"$INSTDIR\Scriptor.exe" --hidden'
+
 !macroend
 
 ; Runs before uninstall
