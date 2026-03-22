@@ -77,17 +77,29 @@ async function createMeetingRecord({ userId, startTime, detectedApp, teamsMeetin
       return null;
     }
 
-    // ── DB dedup: broad check — any meeting by this user within ±10 min ──
-    // Ignores detected_app to catch cross-app duplicates (e.g., Teams desktop vs Teams browser).
-    // A user can only be in one meeting at a time, so any recent record is a duplicate.
+    // ── DB dedup: only reuse a record that is genuinely the same ongoing meeting ────────────
+    //
+    // Two scenarios where we should reuse an existing record:
+    //   (a) status="recording" within ±10 min  — the app was restarted mid-meeting, or the
+    //       same meeting was detected twice in quick succession (e.g., Teams desktop → browser).
+    //       A wide 10-min window is safe here because a "recording" record must be from the
+    //       CURRENT active session; there cannot be two genuinely different concurrent meetings.
+    //
+    //   (b) status="recording" only — we deliberately do NOT reuse completed/processed/failed
+    //       records here.  If a previous meeting ended 5-10 minutes ago and a new, different
+    //       meeting is now starting, the ±10 min window would incorrectly match the old record
+    //       and merge both meetings into one session.  Back-to-back meetings (e.g., a 3-minute
+    //       test call at 12:15 followed by a real call at 12:22) must each get their own record.
+    //
+    // The in-memory dedupKey guard above already handles the sub-minute duplicate case.
     const startDate = new Date(startTime);
     const windowStart = new Date(startDate.getTime() - 10 * 60 * 1000).toISOString();
-    const windowEnd = new Date(startDate.getTime() + 10 * 60 * 1000).toISOString();
+    const windowEnd   = new Date(startDate.getTime() + 10 * 60 * 1000).toISOString();
 
-    // First: look for a "recording" status record (orphan from previous fragment or same session)
+    // Only look for orphaned "recording" records — never reuse a completed one.
     const { data: recordingOrphans, error: orphanError } = await supabase
       .from('meetings')
-      .select('id, detected_app')
+      .select('id, detected_app, start_time, duration_seconds')
       .eq('user_id', userId)
       .eq('status', 'recording')
       .gte('start_time', windowStart)
@@ -107,27 +119,8 @@ async function createMeetingRecord({ userId, startTime, detectedApp, teamsMeetin
       return recordingOrphans[0].id;
     }
 
-    // Second: look for any record (processed, uploaded, failed, etc.)
-    const { data: existing, error: existingError } = await supabase
-      .from('meetings')
-      .select('id, detected_app')
-      .eq('user_id', userId)
-      .gte('start_time', windowStart)
-      .lte('start_time', windowEnd)
-      .limit(1);
-
-    if (existingError) {
-      log.warn('[Uploader] Dedup query (existing meetings) failed, aborting record creation to prevent duplicate', { error: existingError.message });
-      return null;
-    }
-
-    if (existing && existing.length > 0) {
-      log.warn('[Uploader] Meeting already exists in DB, reusing', {
-        existingId: existing[0].id, existingApp: existing[0].detected_app, newApp: detectedApp
-      });
-      _lastCreatedMeetingKey = dedupKey;
-      return existing[0].id;
-    }
+    // Do NOT query for non-recording records here.  A completed meeting from 5–10 minutes
+    // ago is a different session and must get its own new record.
 
     // Get user's org_id from profile
     const { data: profile, error: profileError } = await supabase
