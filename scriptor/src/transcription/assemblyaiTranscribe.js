@@ -177,11 +177,16 @@ async function requestTranscription(uploadUrl, apiKey, options = {}) {
     punctuate: true,
   };
 
-  // universal-3-pro as primary, universal-2 as fallback.
-  // Note: AssemblyAI now uses "speech_models" (plural array) instead of deprecated "speech_model".
-  // Valid values: "universal-3-pro", "universal-2" (slam-1 and "best" are not valid model names).
+  // Always pass BOTH models as an array so AssemblyAI can pick the best one per language.
+  // universal-3-pro alone only supports a limited set of languages (English, Spanish, etc.).
+  // When the meeting is in Hindi, Telugu, Tamil, Arabic, or any other of the 99+ languages
+  // supported by universal-2, passing a single-element ["universal-3-pro"] causes a hard
+  // HTTP 400 error and produces zero transcription output.
+  // Passing ["universal-3-pro", "universal-2"] tells AssemblyAI to use pro where it can and
+  // fall back to universal-2 for any language pro doesn't support — this is the API-recommended
+  // pattern as stated in AssemblyAI's own error message.
   if (useSlamModel) {
-    body.speech_models = ['universal-3-pro'];
+    body.speech_models = ['universal-3-pro', 'universal-2'];
   } else {
     body.speech_models = ['universal-2'];
   }
