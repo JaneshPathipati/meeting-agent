@@ -40,6 +40,7 @@ let _listenOnlyDetection = false;     // Whether current recording was started w
 let _candidateIsListenOnly = false;   // Whether current candidate is listen-only
 let _listenOnlyStartPriority = 0;     // Which priority signal started the listen-only recording (1-4)
 let _presenceNoMicCount = 0;          // Consecutive InAMeeting-only ticks without mic/cam (for Priority 4)
+let _teamsUdpHighCount  = 0;          // Consecutive ticks where Teams process-scoped UDP > 30 (for Signal 3.5)
 let _presenceEndCount = 0;            // Consecutive non-call ticks during listen-only end detection
 let _teamsPresenceMicOffCount = 0;    // Consecutive ticks where Teams mic off + presence null/not-in-meeting (Bug 2 tolerance)
 let _lastTitleDefinitive = false;     // Whether last title check was definitively negative (for debounce optimization)
@@ -89,7 +90,10 @@ const TEAMS_MIC_STOP_DEBOUNCE_MS = 5000;  // 5s debounce for Teams desktop mic r
 const LISTEN_ONLY_STOP_DEBOUNCE_MS = 30000; // 30s debounce for listen-only InACall-based end detection
 const LISTEN_ONLY_WEAK_STOP_DEBOUNCE_MS = 60000; // 60s debounce for listen-only InAMeeting-based end detection
 const PRESENCE_END_TICKS_REQUIRED = 5; // 5 consecutive non-call ticks (~25s) to confirm end — extra buffer for API blips
-const SUSTAINED_PRESENCE_TICKS = 10; // 10 consecutive ticks (~50s) for weak InAMeeting-only detection (Priority 4)
+const SUSTAINED_PRESENCE_TICKS  = 10; // 10 consecutive ticks (~50s) for weak InAMeeting-only detection (Priority 4)
+const TEAMS_UDP_SUSTAINED_TICKS = 5;  // 5 consecutive ticks (~25s) of process-scoped high UDP before Signal 3.5 fires.
+                                       // A real Teams call keeps SRTP/ICE ports open continuously; background
+                                       // Teams activity (presence updates, notifications) creates short bursts only.
 const MIN_MEETING_DURATION_MS = 30000; // Skip meetings shorter than 30s (accidental joins)
 const MAX_RECORDING_MS = 4 * 60 * 60 * 1000; // 4 hours
 const SLEEP_GAP_THRESHOLD_MS = 30000; // 30s gap between ticks = likely wake from sleep/hibernate
@@ -361,25 +365,34 @@ function teamsDesktopTitleHasCallKeywords() {
   });
 }
 
-// Check if a Teams call is active by counting high UDP ephemeral endpoints.
-// Active Teams media sessions use many UDP ports > 49152 for SRTP/ICE.
-// >50 such endpoints reliably indicates an active call (Teams desktop idle keeps ~10-30).
-// Raised threshold from 20→50 to avoid false positives when Teams is open but not in a call.
+// Check if a Teams call is active by counting high UDP ephemeral endpoints that belong
+// specifically to the ms-teams.exe process.
+//
+// Filtering to the Teams PID is critical: system-wide UDP counts include Chrome, Outlook,
+// and any WebRTC app, which can easily exceed 50 even with no Teams meeting in progress.
+// By scoping to ms-teams.exe we only see Teams' own SRTP/ICE media ports:
+//   Teams desktop idle    : ~5-20 process-owned UDP ports > 49152
+//   Teams desktop in call : ~40-100+ process-owned UDP ports > 49152
+// Threshold: > 30 (process-scoped, so lower than the old system-wide 50 is fine).
 // Cached for 10s to avoid running a heavyweight PowerShell every tick.
-let _lastUdpCheck = { time: 0, active: false };
+let _lastUdpCheck = { time: 0, active: false, count: 0 };
 const UDP_CHECK_CACHE_MS = 10000;
 
 function isTeamsCallActive() {
   const now = Date.now();
   if (now - _lastUdpCheck.time < UDP_CHECK_CACHE_MS) return _lastUdpCheck.active;
   try {
+    // Scope the query to ms-teams.exe only — eliminates noise from all other processes.
+    const ps = '$p=Get-Process ms-teams -EA SilentlyContinue|Select-Object -First 1;' +
+               'if($p){(Get-NetUDPEndpoint -OwningProcess $p.Id|' +
+               'Where-Object{$_.LocalPort -gt 49152}).Count}else{0}';
     const result = execSync(
-      'powershell -NoProfile -NonInteractive -Command "Get-NetUDPEndpoint | Where-Object {$_.LocalPort -gt 49152} | Measure-Object | Select-Object -ExpandProperty Count"',
-      { timeout: 3000, encoding: 'utf8', windowsHide: true }
+      `powershell -NoProfile -NonInteractive -Command "${ps}"`,
+      { timeout: 4000, encoding: 'utf8', windowsHide: true }
     ).trim();
     const udpCount = parseInt(result, 10);
-    const active = !isNaN(udpCount) && udpCount > 50;
-    _lastUdpCheck = { time: now, active };
+    const active = !isNaN(udpCount) && udpCount > 30;
+    _lastUdpCheck = { time: now, active, count: udpCount };
     return active;
   } catch (err) {
     log.debug('[Detector] UDP endpoint check failed', { error: err.message });
@@ -587,15 +600,32 @@ async function detectMeetingSignals(processes, fgTitle, fgProcessName) {
     // ── Signal 3.5: UDP endpoints indicate an active Teams call (Presence may be missing) ──
     // If the user is in a Teams call but mic/camera are off (listen-only) and the
     // Graph Presence API isn't available (no MSAL token / token fetch failure),
-    // Presence-based detection won't fire. UDP endpoint count is a direct network
-    // evidence of active media sessions, so we can accept the meeting using it.
-    if (isTeamsCallActive()) {
+    // Presence-based detection won't fire.
+    //
+    // SAFETY: We require TEAMS_UDP_SUSTAINED_TICKS (~25s) of continuous high UDP
+    // from the ms-teams.exe process (process-scoped, not system-wide) before
+    // accepting this as a meeting.  This filters out:
+    //   - Momentary background bursts when Teams syncs notifications/presence
+    //   - False positives from Chrome, Outlook, or other apps using UDP >49152
+    //   - Brief spikes when Teams reconnects after a network change
+    // A real SRTP/ICE media session keeps the ports open continuously for the
+    // duration of the call, so sustained = reliable.
+    const udpActive = isTeamsCallActive();
+    if (udpActive) {
+      _teamsUdpHighCount++;
+    } else {
+      _teamsUdpHighCount = 0;
+    }
+    if (udpActive && _teamsUdpHighCount >= TEAMS_UDP_SUSTAINED_TICKS) {
       const resolved = resolveListenOnlyApp(teamsApp, processes);
-      log.info('[Detector] Teams meeting detected via UDP endpoints (no mic/cam, Presence optional)', {
+      log.info('[Detector] Teams meeting detected via sustained UDP endpoints (no mic/cam, Presence optional)', {
         activity: presence ? presence.activity : 'N/A',
-        attributedTo: resolved.appName
+        attributedTo: resolved.appName,
+        udpTicks: _teamsUdpHighCount,
+        teamsUdpCount: _lastUdpCheck.count,
       });
       _presenceNoMicCount = 0;
+      _teamsUdpHighCount  = 0; // reset after firing so it doesn't immediately re-trigger
       return {
         detected: true,
         appName: resolved.appName,
@@ -1756,6 +1786,7 @@ function _resetDetectorState() {
   _candidateIsListenOnly   = false;
   _listenOnlyStartPriority = 0;
   _presenceNoMicCount      = 0;
+  _teamsUdpHighCount       = 0;
   _presenceEndCount        = 0;
   _teamsPresenceMicOffCount = 0;
   _lastTitleDefinitive     = false;
@@ -1960,8 +1991,9 @@ async function detectionTick() {
         _activeMeetingBrowserProcess = (signals.appConfig && signals.appConfig.processes)
           ? signals.appConfig.processes.find(p => BROWSER_PROCESS_SET.has(p.toLowerCase())) || null
           : null;
-        _presenceEndCount = 0; // Reset listen-only end counter for new candidate
+        _presenceEndCount   = 0; // Reset listen-only end counter for new candidate
         _presenceNoMicCount = 0; // Reset sustained presence counter to prevent stale Priority 4 detection
+        _teamsUdpHighCount  = 0; // Reset UDP sustained counter — a stronger signal already fired
 
         // ── Layer 3: Pre-meeting enrichment ──
         // Fire enrichCandidate() in background during debounce window.
