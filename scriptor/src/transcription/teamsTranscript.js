@@ -405,17 +405,22 @@ async function checkTeamsTranscript(meetingData, attempt) {
 
     // Parse VTT to canonical JSON format with speaker name resolution
     const transcriptJson = parseVttToJson(vttContent, meetingData, orgProfiles);
+
+    // Use upsert so this works both when the transcript row already exists (deferred
+    // attempts 1-5 after AssemblyAI has run) AND when it doesn't yet (attempt 0 before
+    // the pipeline has had a chance to create it).  onConflict:'meeting_id' matches the
+    // unique constraint on the transcripts table.
     const { error } = await supabase
       .from('transcripts')
-      .update({
+      .upsert({
+        meeting_id:      meetingData.meetingId,
         transcript_json: transcriptJson,
-        source: 'teams',
-        overridden_at: new Date().toISOString()
-      })
-      .eq('meeting_id', meetingData.meetingId);
+        source:          'teams',
+        overridden_at:   new Date().toISOString()
+      }, { onConflict: 'meeting_id' });
 
     if (error) {
-      log.error('[TeamsTranscript] Failed to update transcript', { error: error.message });
+      log.error('[TeamsTranscript] Failed to upsert transcript', { error: error.message });
       return false;
     }
 
@@ -467,9 +472,49 @@ async function checkTeamsTranscript(meetingData, attempt) {
       approach: teamsMeetingId ? 'graph' : 'unknown'
     });
 
-    // Wait for the trigger + cron to re-process the Teams transcript, then send email.
-    // The transcript UPDATE fires on_transcript_upserted → cron generates new summary.
-    // We poll until status='processed', then call send_deferred_email.
+    // ── Post-override status + email ──────────────────────────────────────────
+    // If the meeting already has an AI summary from the initial pipeline run
+    // (the common case for deferred attempts 1-5), set status='processed' now
+    // and send the email immediately.  Do NOT rely on the backend cron to re-run
+    // because the cron already processed this meeting and won't pick it up again
+    // within our poll window, leaving the meeting permanently stuck in 'processing'.
+    //
+    // If there is no summary yet (attempt 0 before AssemblyAI has run), fall
+    // through to the normal poll loop so the cron can generate the first summary.
+    try {
+      const { data: existingSummary } = await supabase
+        .from('summaries')
+        .select('id')
+        .eq('meeting_id', meetingData.meetingId)
+        .limit(1)
+        .single();
+
+      if (existingSummary) {
+        log.info('[TeamsTranscript] Summary already exists — setting processed directly and sending email', {
+          meetingId: meetingData.meetingId
+        });
+        await supabase
+          .from('meetings')
+          .update({ status: 'processed' })
+          .eq('id', meetingData.meetingId);
+
+        const { data: emailResult, error: rpcErr } = await supabase.rpc('send_deferred_email', {
+          p_meeting_id: meetingData.meetingId
+        });
+        if (rpcErr) {
+          log.warn('[TeamsTranscript] Post-override email failed', { meetingId: meetingData.meetingId, error: rpcErr.message });
+        } else {
+          log.info('[TeamsTranscript] Post-override email sent', { meetingId: meetingData.meetingId, result: emailResult });
+        }
+        return true;
+      }
+    } catch (summaryCheckErr) {
+      log.warn('[TeamsTranscript] Summary check failed (non-critical, will fall back to poll)', {
+        meetingId: meetingData.meetingId, error: summaryCheckErr.message
+      });
+    }
+
+    // No summary yet — wait for the trigger + cron to generate it, then send email.
     scheduleEmailAfterReprocessing(supabase, meetingData.meetingId);
 
     return true;
@@ -648,14 +693,10 @@ async function fetchTranscriptByJoinUrl(graphClient, joinUrl, meetingStart, meet
 // This function polls until re-processing completes, then sends the deferred email.
 // Runs async (fire-and-forget) so it doesn't block the caller.
 function scheduleEmailAfterReprocessing(supabase, meetingId) {
-  const MAX_POLLS = 20; // 20 × 15s = 5 min max wait
+  const MAX_POLLS = 40; // 40 × 15s = 10 min max wait (backend cron can take up to 5-10 min)
   let polls = 0;
 
   async function poll() {
-    if (polls >= MAX_POLLS) {
-      log.warn('[TeamsTranscript] Email poll: max polls reached, giving up', { meetingId });
-      return;
-    }
     polls++;
     try {
       const { data: meeting } = await supabase
@@ -675,22 +716,45 @@ function scheduleEmailAfterReprocessing(supabase, meetingId) {
 
       if (meeting.status === 'processed') {
         log.info('[TeamsTranscript] Re-processing complete, sending email', { meetingId });
-
         const { data: emailResult, error: rpcErr } = await supabase.rpc('send_deferred_email', {
           p_meeting_id: meetingId
         });
-
         if (rpcErr) {
           log.warn('[TeamsTranscript] Post-override email failed', { meetingId, error: rpcErr.message });
         } else {
           log.info('[TeamsTranscript] Post-override email sent', { meetingId, result: emailResult });
         }
-        return; // done
-      } else if (meeting.status === 'failed') {
-        log.warn('[TeamsTranscript] Email poll: gave up waiting', {
-          meetingId, status: meeting.status, polls
-        });
-        return; // done
+        return;
+      }
+
+      if (meeting.status === 'failed') {
+        log.warn('[TeamsTranscript] Email poll: meeting failed, giving up', { meetingId, polls });
+        return;
+      }
+
+      // Max polls reached — self-heal: if a summary already exists, force the meeting to
+      // 'processed' so it doesn't stay stuck in 'processing' forever.  This fires when the
+      // backend cron didn't run within our poll window (e.g. meeting already processed once,
+      // cron skips it on the second pass).
+      if (polls >= MAX_POLLS) {
+        log.warn('[TeamsTranscript] Email poll: max polls reached, attempting self-heal', { meetingId });
+        try {
+          const { data: existingSummary } = await supabase
+            .from('summaries').select('id').eq('meeting_id', meetingId).limit(1).single();
+          if (existingSummary) {
+            log.info('[TeamsTranscript] Self-heal: summary found, setting processed', { meetingId });
+            await supabase.from('meetings').update({ status: 'processed' }).eq('id', meetingId);
+            const { data: emailResult, error: rpcErr } = await supabase.rpc('send_deferred_email', {
+              p_meeting_id: meetingId
+            });
+            if (!rpcErr) log.info('[TeamsTranscript] Self-heal: email sent', { meetingId, result: emailResult });
+          } else {
+            log.warn('[TeamsTranscript] Self-heal: no summary found, giving up', { meetingId });
+          }
+        } catch (healErr) {
+          log.warn('[TeamsTranscript] Self-heal failed', { meetingId, error: healErr.message });
+        }
+        return;
       }
     } catch (err) {
       log.warn('[TeamsTranscript] Email poll error', { meetingId, error: err.message });
@@ -699,7 +763,6 @@ function scheduleEmailAfterReprocessing(supabase, meetingId) {
         return;
       }
     }
-    // Schedule next poll only after this one finishes (avoids overlapping calls)
     setTimeout(poll, 15000);
   }
 
