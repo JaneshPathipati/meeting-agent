@@ -581,6 +581,29 @@ async function detectMeetingSignals(processes, fgTitle, fgProcessName) {
       };
     }
 
+    // ── Signal 3.5: UDP endpoints indicate an active Teams call (Presence may be missing) ──
+    // If the user is in a Teams call but mic/camera are off (listen-only) and the
+    // Graph Presence API isn't available (no MSAL token / token fetch failure),
+    // Presence-based detection won't fire. UDP endpoint count is a direct network
+    // evidence of active media sessions, so we can accept the meeting using it.
+    if (isTeamsCallActive()) {
+      const resolved = resolveListenOnlyApp(teamsApp, processes);
+      log.info('[Detector] Teams meeting detected via UDP endpoints (no mic/cam, Presence optional)', {
+        activity: presence ? presence.activity : 'N/A',
+        attributedTo: resolved.appName
+      });
+      _presenceNoMicCount = 0;
+      return {
+        detected: true,
+        appName: resolved.appName,
+        appConfig: resolved.appConfig,
+        isTeams: true,
+        windowTitle: fgTitle,
+        detectedWithoutMic: true,
+        listenOnlyPriority: 3
+      };
+    }
+
     // ── Signal 4: Presence-based listen-only detection (supplementary, not a gate) ──
     // Only reached when mic AND camera are both off. Presence becomes a boost signal
     // for detecting meetings where the user is listening only.
