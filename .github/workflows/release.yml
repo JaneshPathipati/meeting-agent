@@ -1,0 +1,88 @@
+# .github/workflows/release.yml
+#
+# Automatically builds the Scriptor Windows installer and publishes it as a
+# GitHub Release whenever you push a version tag (e.g. v2.0.2).
+#
+# ── How to release a new version ──────────────────────────────────────────
+# 1. Bump the version in scriptor/package.json  (e.g. "2.0.1" → "2.0.2")
+# 2. Commit and push:
+#      git add scriptor/package.json
+#      git commit -m "chore: bump version to 2.0.2"
+#      git push
+# 3. Create and push the matching tag:
+#      git tag v2.0.2
+#      git push origin v2.0.2
+# 4. This workflow fires, builds the installer, and creates a GitHub Release.
+# 5. All installed Scriptor agents check for updates every 6 hours and will
+#    silently download + install the new version on their next restart.
+#
+# ── Required GitHub Actions secrets ───────────────────────────────────────
+# Set these under: GitHub repo → Settings → Secrets → Actions
+#
+#   GH_TOKEN              - GitHub PAT with  contents:write  (for publish)
+#   SUPABASE_URL          - Supabase project URL
+#   SUPABASE_SERVICE_ROLE_KEY
+#   AZURE_CLIENT_ID
+#   AZURE_TENANT_ID
+#   AZURE_CLIENT_SECRET   - (optional)
+#   OPENAI_API_KEY        - (optional)
+#   ASSEMBLYAI_API_KEY    - (optional)
+#   GH_UPDATE_TOKEN       - read-only GitHub PAT (contents:read) embedded in
+#                           the .exe so installed agents can download updates
+#                           from this private repo.
+
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'   # triggers on v2.0.2, v2.1.0, etc.
+
+jobs:
+  build-and-release:
+    name: Build Windows installer
+    runs-on: windows-latest
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js ───────────────────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: scriptor/package-lock.json
+
+      # ── 3. Install dependencies ──────────────────────────────────────────
+      - name: Install dependencies
+        working-directory: scriptor
+        run: npm ci
+
+      # ── 4. Build the frontend (admin panel) ─────────────────────────────
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # ── 5. Build Electron installer & publish to GitHub Releases ─────────
+      # electron-builder reads GH_TOKEN to authenticate with the GitHub
+      # Releases API and upload the installer + latest.yml as release assets.
+      - name: Build and publish Electron installer
+        working-directory: scriptor
+        env:
+          GH_TOKEN:                   ${{ secrets.GH_TOKEN }}
+          SUPABASE_URL:               ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AZURE_CLIENT_ID:            ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID:            ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_SECRET:        ${{ secrets.AZURE_CLIENT_SECRET }}
+          OPENAI_API_KEY:             ${{ secrets.OPENAI_API_KEY }}
+          ASSEMBLYAI_API_KEY:         ${{ secrets.ASSEMBLYAI_API_KEY }}
+          GH_UPDATE_TOKEN:            ${{ secrets.GH_UPDATE_TOKEN }}
+        run: npm run build -- --publish always

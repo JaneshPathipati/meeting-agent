@@ -5,7 +5,7 @@ const log = require('electron-log');
 const { initTray, refreshTray } = require('./tray');
 const { registerWatchdog, unregisterWatchdog } = require('./watchdog');
 const { loadConfig, getConfig, setConfig, getStore } = require('./config');
-const { initUpdater } = require('./updater');
+const { initUpdater, setTrayRef } = require('./updater');
 const { initMsalAuth, isAuthenticated, validateTokenOrReauth } = require('../auth/msalAuth');
 const { startDetectionLoop, stopDetectionLoop } = require('../detection/meetingDetector');
 const { initUploadQueue, retryQueuedItems } = require('../api/uploader');
@@ -85,8 +85,11 @@ app.whenReady().then(async () => {
     // Initialize system tray
     initTray();
 
-    // Initialize auto-updater
+    // Initialize auto-updater — pass tray so it can show a balloon + "Restart to Update" menu
+    const { getTray } = require('./tray');
     initUpdater();
+    // setTrayRef is called after initTray so the tray object exists
+    try { setTrayRef(getTray()); } catch (_) {}
 
   } catch (err) {
     log.error('[Main] Startup failed', { error: err.message });

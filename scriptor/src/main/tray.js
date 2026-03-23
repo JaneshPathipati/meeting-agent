@@ -4,6 +4,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const log = require('electron-log');
 const { getConfig } = require('./config');
+const { isUpdateReady, quitAndInstall } = require('./updater');
 
 let tray = null;
 let _isRecording = false;
@@ -87,6 +88,18 @@ function buildMenu() {
         ? `Disk: ${_diskFreeGB} GB free (low)`
         : `Disk: ${_diskFreeGB} GB free`;
     items.push({ label: diskLabel, enabled: false });
+  }
+
+  // "Restart to Update" — only shown when an update has been downloaded
+  if (isUpdateReady()) {
+    items.push({ type: 'separator' });
+    items.push({
+      label: '🔄 Restart to Update Scriptor',
+      click: () => {
+        log.info('[Tray] User clicked Restart to Update');
+        quitAndInstall();
+      }
+    });
   }
 
   items.push({ type: 'separator' });
@@ -186,4 +199,6 @@ function getDiskFreeGB() {
   return _diskFreeGB;
 }
 
-module.exports = { initTray, refreshTray, destroyTray, setRecordingStatus, getDiskFreeGB, refreshDiskSpace };
+function getTray() { return tray; }
+
+module.exports = { initTray, refreshTray, destroyTray, setRecordingStatus, getDiskFreeGB, refreshDiskSpace, getTray };

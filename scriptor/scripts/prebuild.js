@@ -57,6 +57,11 @@ const OPTIONAL_KEYS = [
   'AZURE_CLIENT_SECRET',
   'OPENAI_API_KEY',
   'ASSEMBLYAI_API_KEY',
+  // Read-only GitHub PAT (contents:read scope) — embedded in the binary so
+  // electron-updater can authenticate against the private GitHub repo to check
+  // for and download new releases.  This token is separate from the CI token
+  // (which has contents:write) and only needs contents:read.
+  'GH_UPDATE_TOKEN',
 ];
 
 const config = {};
@@ -95,6 +100,7 @@ module.exports = {
   AZURE_CLIENT_SECRET: ${JSON.stringify(config.AZURE_CLIENT_SECRET)},
   OPENAI_API_KEY: ${JSON.stringify(config.OPENAI_API_KEY)},
   ASSEMBLYAI_API_KEY: ${JSON.stringify(config.ASSEMBLYAI_API_KEY)},
+  GH_UPDATE_TOKEN: ${JSON.stringify(config.GH_UPDATE_TOKEN)},
 };
 `;
 

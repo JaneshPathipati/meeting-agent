@@ -52,7 +52,7 @@ nsis:
 
 publish:
   - provider: github
-    owner: "retvq"      # TODO: Set when repo is created
-    repo: "scriptor-agent"
+    owner: "JaneshPathipati"
+    repo: "meeting-agent"
     private: true
     releaseType: release
