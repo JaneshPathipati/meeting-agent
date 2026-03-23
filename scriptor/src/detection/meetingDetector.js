@@ -82,7 +82,10 @@ const LISTEN_ONLY_DEBOUNCE_MS = 60000; // 60s debounce for weak listen-only sign
 const STOP_DEBOUNCE_MS = 30000; // 30s debounce before ending meeting (title-based apps, was 60s — tightened to reduce post-meeting audio capture)
 const BROWSER_DEFINITIVE_STOP_DEBOUNCE_MS = 15000; // 15s debounce when browser tab title definitively gone
 const GMEET_STOP_DEBOUNCE_MS = 15000; // 15s debounce for Google Meet end — allows time for brief signal drops without fragmenting
-const TEAMS_MIC_STOP_DEBOUNCE_MS = 30000; // 30s debounce for Teams desktop mic release (Teams 2.0 releases mic on mute)
+const TEAMS_MIC_STOP_DEBOUNCE_MS = 5000;  // 5s debounce for Teams desktop mic release — Teams 2.0 releases mic on mute,
+                                           // but we already tolerate 4 consecutive Presence-null ticks (~28s) before this
+                                           // debounce fires, so the combined window (~33s) is enough to survive a brief mute
+                                           // without fragmenting the meeting.
 const LISTEN_ONLY_STOP_DEBOUNCE_MS = 30000; // 30s debounce for listen-only InACall-based end detection
 const LISTEN_ONLY_WEAK_STOP_DEBOUNCE_MS = 60000; // 60s debounce for listen-only InAMeeting-based end detection
 const PRESENCE_END_TICKS_REQUIRED = 5; // 5 consecutive non-call ticks (~25s) to confirm end — extra buffer for API blips

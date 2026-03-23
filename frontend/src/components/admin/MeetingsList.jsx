@@ -22,8 +22,9 @@ const CATEGORIES = [
 
 const STATUSES = [
   { value: '', label: 'All Statuses' },
-  { value: 'uploaded', label: 'Uploaded' },
+  { value: 'recording', label: 'Recording' },
   { value: 'processing', label: 'Processing' },
+  { value: 'uploaded', label: 'Uploaded' },
   { value: 'processed', label: 'Processed' },
   { value: 'failed', label: 'Failed' },
 ];
@@ -41,7 +42,13 @@ function getStatusLabel(meeting) {
   if (meeting.status === 'awaiting_teams_transcript') {
     return TEAMS_ATTEMPT_LABELS[meeting.teams_transcript_attempt || 0] || TEAMS_ATTEMPT_LABELS[0];
   }
-  return { uploaded: 'Uploaded', processing: 'Processing', processed: 'Processed', failed: 'Failed' }[meeting.status] || meeting.status;
+  return {
+    recording:   'Recording…',
+    uploaded:    'Uploaded',
+    processing:  'Processing…',
+    processed:   'Processed',
+    failed:      'Failed',
+  }[meeting.status] || meeting.status;
 }
 
 const categoryPills = {
@@ -55,8 +62,9 @@ const categoryPills = {
 };
 
 const statusPills = {
+  recording:                 { color: '#B45309', bg: '#FEF9C3' }, // amber-700 on yellow-100 — actively recording
   uploaded:                  { color: '#2563EB', bg: '#DBEAFE' },
-  processing:                { color: '#D97706', bg: '#FEF3C7' },
+  processing:                { color: '#D97706', bg: '#FEF3C7' }, // amber — pipeline running
   processed:                 { color: '#059669', bg: '#D1FAE5' },
   failed:                    { color: '#DC2626', bg: '#FEE2E2' },
   awaiting_teams_transcript: { color: '#4F46E5', bg: '#EEF2FF' },

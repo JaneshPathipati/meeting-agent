@@ -49,6 +49,27 @@ async function processMeeting(ctx) {
   const isTeams = !!(teamsMeetingInfo);
   const userName = getConfig('userDisplayName') || getConfig('userName') || 'You';
 
+  // ── Immediately flip status from 'recording' → 'processing' ───────────────
+  // The meeting row is created as 'recording' when audio capture starts.
+  // It stays 'recording' until uploadMeeting() finishes (transcription + AI +
+  // upload can take 3-5 minutes).  Updating it here lets the admin panel show
+  // "Processing" right away instead of showing the session as still recording.
+  if (earlyMeetingId) {
+    try {
+      const { getSupabaseClient } = require('../api/supabaseClient');
+      const supabase = getSupabaseClient();
+      await supabase
+        .from('meetings')
+        .update({ status: 'processing' })
+        .eq('id', earlyMeetingId)
+        .eq('status', 'recording'); // only flip if still 'recording' (idempotent)
+    } catch (statusErr) {
+      log.warn('[Pipeline] Could not update status to processing (non-critical)', {
+        error: statusErr.message,
+      });
+    }
+  }
+
   // ── Layer 5: Platform-specific transcription routing ──────────────────────
   let transcript = null;
   let transcriptSource = 'local';
