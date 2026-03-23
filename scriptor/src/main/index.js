@@ -167,10 +167,13 @@ async function tryAutoReEnroll() {
     log.info('[Main] Auto-re-enroll: attempting recovery via email', { email });
 
     // Look up the profile in Supabase by microsoft_email
+    const emailNorm = (email || '').trim().toLowerCase();
     const { data: profiles, error } = await supabase
       .from('profiles')
       .select('id, full_name, is_active, is_locked_out, org_id')
-      .eq('microsoft_email', email)
+      // Use case-insensitive match because admins may enter emails with different casing
+      // (e.g. chanderpal.s@... vs Chanderpal.S@...).
+      .ilike('microsoft_email', emailNorm)
       .eq('role', 'user')
       .limit(1);
 
@@ -683,10 +686,12 @@ ipcMain.handle('auth:verify-email', async (_event, email) => {
     }
 
     const supabase = getSupabaseClient();
+    const emailNorm = (email || '').trim().toLowerCase();
     const { data: profiles, error: findErr } = await supabase
       .from('profiles')
       .select('id, full_name, is_active, is_locked_out, enrolled_at')
-      .eq('microsoft_email', email)
+      // Use case-insensitive matching because email case can differ.
+      .ilike('microsoft_email', emailNorm)
       .eq('org_id', orgId)
       .eq('role', 'user')
       .limit(1);
@@ -769,10 +774,12 @@ ipcMain.handle('setup:complete-enrollment', async (_event, data) => {
     }
 
     // Find the pre-configured profile by microsoft_email + org
+    const msEmailNorm = (data.msEmail || '').trim().toLowerCase();
     const { data: profiles, error: findError } = await supabase
       .from('profiles')
       .select('id, full_name, is_active, is_locked_out')
-      .eq('microsoft_email', data.msEmail)
+      // Use case-insensitive matching because email case can differ.
+      .ilike('microsoft_email', msEmailNorm)
       .eq('org_id', orgId)
       .eq('role', 'user')
       .limit(1);
